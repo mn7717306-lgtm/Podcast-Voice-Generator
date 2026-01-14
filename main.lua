@@ -23,12 +23,13 @@ if Build.VERSION.SDK_INT >= 23 then
  import "android.media.PlaybackParams"
 end
 activity = this
-local CURRENT_VERSION = "1.0"
+local CURRENT_VERSION = "1.1"
 local GITHUB_USER = "mn7717306-lgtm"
 local REPO_NAME = "Podcast-Voice-Generator"
 local GITHUB_RAW_URL = "https://raw.githubusercontent.com/"..GITHUB_USER.."/"..REPO_NAME.."/main/"
 local VERSION_URL = GITHUB_RAW_URL .. "version.txt"
-local SCRIPT_URL = GITHUB_RAW_URL .. "main.lua"
+local UPDATE_DETAILS_URL = GITHUB_RAW_URL .. "update.txt"
+local SCRIPT_URL = GITHUB_RAW_URL .. "Pmain.lua"
 local PLUGIN_PATH = "/sdcard/解说/Plugins/Podcast Voice Generator/main.lua"
 local updateInProgress = false
 local mainHandler = Handler(Looper.getMainLooper())
@@ -219,45 +220,57 @@ local isGenerationActive = false
 local backgroundWakeLock = nil
 local isBackgroundServiceActive = false
 local backgroundServiceIntent = nil
+
 function feedback(msg)
  if service then service.speak(msg) end
  local vibrator = activity.getSystemService(Context.VIBRATOR_SERVICE)
  if vibrator then vibrator.vibrate(50) end
 end
+
 function checkForUpdate(manual)
  if updateInProgress then return end
- if manual then feedback("Checking for updates...") end
+ if manual then feedback("Checking for updates from repository...") end
  
  Http.get(VERSION_URL, function(code, onlineVersion)
  if code == 200 and onlineVersion then
  onlineVersion = tostring(onlineVersion):match("^%s*(.-)%s*$")
  if onlineVersion and onlineVersion ~= CURRENT_VERSION then
- showUpdateDialog(onlineVersion)
+ Http.get(UPDATE_DETAILS_URL, function(code2, details)
+ local changeLog = (code2 == 200 and details) and details or "Minor bug fixes and stability improvements."
+ showUpdateDialog(onlineVersion, changeLog)
+ end)
  elseif manual then
- feedback("You are using the latest version.")
+ feedback("You are using the latest version " .. CURRENT_VERSION)
  end
  elseif manual then
- feedback("Failed to check for updates. Please try again later.")
+ feedback("Failed to check for updates. Please check your internet.")
  end
  end)
 end
-function showUpdateDialog(newVer)
+
+function showUpdateDialog(newVer, details)
  local udlg = LuaDialog(activity)
- udlg.setTitle("Update Available")
- udlg.setMessage("A new version ("..newVer..") of Podcast Voice Generator is available. Would you like to update now?")
+ udlg.setTitle("Update Available: v" .. newVer)
+ 
+ local msgContent = "A new version of Podcast Voice Generator is ready for download.\n\n" ..
+ "What's New:\n" .. details .. "\n\n" ..
+ "Would you like to install the update now?"
+ 
+ udlg.setMessage(msgContent)
  
  udlg.setPositiveButton("Update Now", function()
  udlg.dismiss()
- feedback("Starting update. Please do not close the plugin.")
+ feedback("Starting update process. Please wait.")
  startPluginUpdate()
  end)
  
- udlg.setNegativeButton("Later", function()
+ udlg.setNegativeButton("Maybe Later", function()
  udlg.dismiss()
  end)
  
  udlg.show()
 end
+
 function startPluginUpdate()
  updateInProgress = true
  Http.get(SCRIPT_URL, function(code, content)
@@ -274,29 +287,41 @@ function startPluginUpdate()
  out.write(content)
  out.close()
  
- feedback("Update successful. Restarting plugin.")
- if dlg then dlg.dismiss() end -- مین ڈائیلاگ بند کرنا
+ feedback("Update successful!")
+ showSuccessDialog("Update Successful: The plugin has been updated to the latest version. Please restart the extension to apply changes.")
  end)
  
  if not status then
- feedback("Update failed. Restoring backup.")
+ feedback("Update installation failed.")
  local backupFile = File(PLUGIN_PATH .. ".bak")
  if backupFile.exists() then
  backupFile.renameTo(File(PLUGIN_PATH))
  end
  end
  else
- feedback("Download failed. Please check your connection.")
+ feedback("Download failed. Could not fetch the update file.")
  end
  updateInProgress = false
  end)
 end
+
+function showSuccessDialog(msg)
+ local successDlg = LuaDialog(activity)
+ successDlg.setTitle("Installation Complete")
+ successDlg.setMessage(msg)
+ successDlg.setPositiveButton("Got it", function()
+ successDlg.dismiss()
+ end)
+ successDlg.show()
+end
+
 function showAboutSection()
  local aboutDlg = LuaDialog(activity)
  aboutDlg.setTitle("About Podcast Voice Generator")
  
- local msg = "Version: " .. CURRENT_VERSION .. "\n" ..
- "Developer: mn7717306-lgtm\n\n" ..
+ local msg = "Current Version: " .. CURRENT_VERSION .. "\n" ..
+ "Developer: mn7717306-lgtm\n" ..
+ "Platform: AndroLUA / CSR\n\n" ..
  "This professional tool allows you to generate high-quality podcast-style audio using Gemini and OpenAI TTS technologies."
  
  aboutDlg.setMessage(msg)
@@ -1224,6 +1249,7 @@ function processNextChunk(chunks, voiceName, emotion, speed, pitch, isSaving, in
  end
  end)
  
+
  local function handleChunkError(errorMsg)
  isGenerationActive = false
  clearGenerationState()
@@ -1718,6 +1744,7 @@ function processMultiVoicePodcast()
  if processMultiVoiceLine then
  processMultiVoiceLine(lines, 1, #lines)
  else
+
  showErrorDialog("Error: processMultiVoiceLine function not found.")
  end
 end
@@ -2024,6 +2051,7 @@ function processMultiVoiceLine(dialogueList, index, totalLines)
  end
  end)
  
+
  local function handleLineError(errMsg)
  isGenerationActive = false
  clearGenerationState()
@@ -3039,6 +3067,7 @@ function showGeminiConfigDialog()
  else
  runOnUi(function() 
  testButton.setEnabled(true)
+
  resultText.text = "Error: testOpenAIApi function not found" 
  end)
  end
@@ -3054,6 +3083,7 @@ function showGeminiConfigDialog()
  else
  runOnUi(function() 
  testButton.setEnabled(true)
+
  resultText.text = "Error: testGeminiApi function not found" 
  end)
  end
@@ -3700,18 +3730,21 @@ function showFileOptionsDialog(file, parentDialog)
  if showProfessionalPlayer then
  showProfessionalPlayer(file)
  else
+
  showErrorDialog("Player function not found.")
  end
  elseif option == "Share" then
  if shareAudioFile then
  shareAudioFile(file)
  else
+
  showErrorDialog("Share function not found.")
  end
  elseif option == "Rename" then
  if showRenameDialog then
  showRenameDialog(file, parentDialog)
  else
+
  showErrorDialog("Rename function not found.")
  end
  elseif option == "Delete" then
@@ -4448,6 +4481,7 @@ function showAboutDialog()
  
  aboutDialog.show()
 end
+
 function showAdvancedUpdateDialog()
  local updLayout = LinearLayout(activity)
  updLayout.setOrientation(LinearLayout.VERTICAL)
@@ -4643,6 +4677,7 @@ function handlePlayButtonClick()
  return
  end
  
+
  local function updatePlayButtonState(btnText)
  runOnUi(function()
  playButton.text = btnText
@@ -5008,6 +5043,7 @@ generateButton.onClick = function()
  stopAudio()
  stopTestAudio()
  
+
  local function resetGenerateUI()
  runOnUi(function()
  generateButton.setEnabled(true)
