@@ -330,63 +330,76 @@ function getVideoLinkShownState()
  return prefs.getBoolean("videoLinkShown", false)
 end
 
+function getUsernamePrefs()
+ return activity.getSharedPreferences("PodcastGeneratorPrefs", Context.MODE_PRIVATE)
+end
 function validateUsername(input)
  if not input or type(input) ~= "string" then return false end
- if #input < 6 or #input > 30 then return false end
+ local len = utf8.len(input) or #input
+ if len < 6 or len > 30 then return false end
  if not input:match("^[A-Za-z .]+$") then return false end
  if input:match("%s%s") then return false end
  if input:match("^%s") or input:match("%s$") then return false end
  return true
 end
-
 function saveUsername(username)
  if not validateUsername(username) then return false end
  local prefs = getUsernamePrefs()
  local editor = prefs.edit()
  editor.putString("username", username)
  editor.putBoolean("username_set", true)
- editor.apply()
+ local success = editor.commit()
+ if success then
  currentUsername = username
- return true
+ end
+ return success
 end
-
 function loadUsername()
  local prefs = getUsernamePrefs()
  currentUsername = prefs.getString("username", "")
  return currentUsername
 end
-
 function isUsernameSet()
  local prefs = getUsernamePrefs()
  return prefs.getBoolean("username_set", false)
 end
-
 function setupUsernameSystem()
  if isUsernameSet() then return end
- local usernameSet = false
+ 
  local usernameDialog = LuaDialog(activity)
  usernameDialog.setTitle("Welcome to Podcast Voice Generator")
- usernameDialog.setMessage("Please enter your username (6-30 characters, letters/spaces/dots only):")
+ usernameDialog.setMessage("Please enter your username to continue.\n(Requirements: 6-30 letters, spaces or dots only)")
+ 
  local usernameInput = EditText(activity)
- usernameInput.setHint("Enter username")
+ usernameInput.setHint("Type your username here...")
+ usernameInput.setContentDescription("Enter username, 6 to 30 characters")
+ 
  usernameDialog.setView(usernameInput)
- usernameDialog.setPositiveButton("Save", function(dialog, which)
+ 
+ usernameDialog.setPositiveButton("Save & Start", function(dialog, which)
  local username = tostring(usernameInput.text)
  if validateUsername(username) then
  if saveUsername(username) then
- usernameSet = true
- showInfoDialog("Welcome", "Username saved successfully!")
+ showInfoDialog("Success", "Welcome " .. username .. "! You can now use the extension.")
+ if type(reopenDialogWithCurrentState) == "function" then
+ reopenDialogWithCurrentState()
+ end
  end
  else
- showErrorDialog("Invalid username! Use 6-30 letters/spaces/dots only.")
+ showErrorDialog("Invalid Name! Please use 6-30 letters, spaces, or dots only.")
+ setupUsernameSystem()
  end
  end)
- usernameDialog.setNegativeButton("Close", function(dialog, which)
- activity.finish()
+ 
+ usernameDialog.setNegativeButton("Exit Plugin", function(dialog, which)
+ dialog.dismiss()
+ if service then
+ service.stopSelf() -- یہ پلگ ان سروس کو بند کرنے کا درست طریقہ ہے
+ end
  end)
- usernameDialog.setCancelable(false)
+ 
+ usernameDialog.setCancelable(false) 
  usernameDialog.show()
- return usernameSet
 end
 
 function sanitizeFeedbackText(text)
@@ -476,7 +489,6 @@ function downloadFile(url, callback)
  end
  end)
 end
-
 function checkForUpdate(manualCheck, onCompleteCallback)
  if not UPDATE_SYSTEM_ENABLED then
  if onCompleteCallback then onCompleteCallback(false, "Update system disabled") end
@@ -487,6 +499,10 @@ function checkForUpdate(manualCheck, onCompleteCallback)
  return
  end
  updateInProgress = true
+ 
+ if manualCheck then
+ service.speak("Checking for updates, please wait...")
+ end
  downloadFile(VERSION_URL, function(onlineVersion, errorMsg)
  if onlineVersion then
  onlineVersion = tostring(onlineVersion):match("^%s*(.-)%s*$")
@@ -522,119 +538,102 @@ function checkForUpdate(manualCheck, onCompleteCallback)
  saveLastUpdateCheckTime()
  end
 end
-
 function showUpdateDialog(newVersion, updateDetails, manualCheck)
  local scrollView = ScrollView(activity)
  local mainLayout = LinearLayout(activity)
  mainLayout.setOrientation(LinearLayout.VERTICAL)
- mainLayout.setPadding(dip2px(10), dip2px(10), dip2px(10), dip2px(10))
+ mainLayout.setPadding(dip2px(15), dip2px(15), dip2px(15), dip2px(15))
+ 
  local titleLabel = TextView(activity)
  titleLabel.text = "New Update Available!"
- titleLabel.textSize = 16
+ titleLabel.textSize = 18
  titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
  titleLabel.setTextColor(0xFF2196F3)
- titleLabel.gravity = Gravity.CENTER
- local titleParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- titleParams.bottomMargin = dip2px(8)
- titleLabel.setLayoutParams(titleParams)
+ titleLabel.setFocusable(true) -- For screen reader focus
+ titleLabel.setGravity(Gravity.CENTER)
  mainLayout.addView(titleLabel)
  local versionLabel = TextView(activity)
- versionLabel.text = "Version " .. newVersion
- versionLabel.textSize = 12
- versionLabel.setTextColor(0xFF666666)
- versionLabel.gravity = Gravity.CENTER
- local versionParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- versionParams.bottomMargin = dip2px(15)
- versionLabel.setLayoutParams(versionParams)
+ versionLabel.text = "Version: " .. newVersion
+ versionLabel.textSize = 14
+ versionLabel.setFocusable(true)
+ versionLabel.setGravity(Gravity.CENTER)
  mainLayout.addView(versionLabel)
  local whatsNewLabel = TextView(activity)
- whatsNewLabel.text = "What's New:"
+ whatsNewLabel.text = "What's New in this update:"
  whatsNewLabel.textSize = 14
+ whatsNewLabel.setFocusable(true)
  whatsNewLabel.setTypeface(Typeface.DEFAULT_BOLD)
- whatsNewLabel.setTextColor(0xFF333333)
- local whatsNewParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- whatsNewParams.bottomMargin = dip2px(8)
- whatsNewLabel.setLayoutParams(whatsNewParams)
  mainLayout.addView(whatsNewLabel)
  local updateTextView = TextView(activity)
  updateTextView.text = updateDetails
- updateTextView.textSize = 12
- updateTextView.setTextColor(0xFF555555)
- updateTextView.setLineSpacing(dip2px(1), 1.1)
- updateTextView.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ updateTextView.textSize = 13
+ updateTextView.setFocusable(true)
+ updateTextView.setLineSpacing(dip2px(2), 1.2)
  mainLayout.addView(updateTextView)
- local spacer = View(activity)
- local spacerParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1)
- spacer.setLayoutParams(spacerParams)
- mainLayout.addView(spacer)
  scrollView.addView(mainLayout)
  local updateDialog = LuaDialog(activity)
- updateDialog.setTitle("Update Available")
+ updateDialog.setTitle("Update Notification")
  updateDialog.setView(scrollView)
+ 
  updateDialog.setPositiveButton("Update Now", function()
+ vibrate()
  updateDialog.dismiss()
  performUpdate(newVersion)
  end)
  if manualCheck then
  updateDialog.setNegativeButton("Close", function()
+ vibrate()
  updateDialog.dismiss()
  end)
  else
  updateDialog.setNegativeButton("Later", function()
+ vibrate()
  updateDialog.dismiss()
  end)
  end
  updateDialog.show()
 end
-
 function performUpdate(newVersion)
  updateInProgress = true
-
+ service.speak("Downloading update, please don't close the app...")
+ 
  local function downloadAndReplace()
  downloadFile(GITHUB_RAW_URL .. "main.lua", function(newContent, errorMsg)
  if newContent then
  local backupPath = PLUGIN_PATH .. ".backup"
- local backupFile = io.open(backupPath, "w")
- if backupFile then
+ local status, err = pcall(function()
  local currentFile = io.open(PLUGIN_PATH, "r")
  if currentFile then
  local currentContent = currentFile:read("*a")
  currentFile:close()
+ local backupFile = io.open(backupPath, "w")
  backupFile:write(currentContent)
  backupFile:close()
+ end
+ 
  local newFile = io.open(PLUGIN_PATH, "w")
- if newFile then
  newFile:write(newContent)
  newFile:close()
- os.remove(backupPath)
- runOnUi(function()
- showInfoDialog("Update Successful",
- "Update to version " .. newVersion .. " completed successfully!\n\n" ..
- "Please restart the plugin for changes to take effect.")
  end)
- updateInProgress = false
- return
- else
- if File(backupPath).exists() then
- os.rename(backupPath, PLUGIN_PATH)
- end
- end
- else
- backupFile:close()
- os.remove(backupPath)
- end
- end
+ if status then
+ if File(backupPath).exists() then os.remove(backupPath) end
  runOnUi(function()
- showErrorDialog("Update failed: Could not write file")
+ showInfoDialog("Update Successful", "Version " .. newVersion .. " has been installed. Please restart the plugin.")
  end)
  else
  runOnUi(function()
- showErrorDialog("Update failed: " .. (errorMsg or "Unknown error"))
+ showErrorDialog("Write Error: " .. tostring(err))
+ end)
+ end
+ else
+ runOnUi(function()
+ showErrorDialog("Download failed: " .. (errorMsg or "Unknown error"))
  end)
  end
  updateInProgress = false
  end)
  end
+ 
  Thread(Runnable{
  run = downloadAndReplace
  }).start()
@@ -1230,32 +1229,32 @@ function writeWavHeader(outStream, totalAudioLen, longSampleRate, channels, byte
  local bitsPerSample = 16
  local blockAlign = (channels * bitsPerSample) / 8
  local calculatedByteRate = longSampleRate * channels * (bitsPerSample / 8)
+ local function getBytes(val)
+ return {
+ val & 0xff,
+ (val >> 8) & 0xff,
+ (val >> 16) & 0xff,
+ (val >> 24) & 0xff
+ }
+ end
+ local totalSizeB = getBytes(totalSize)
+ local sampleRateB = getBytes(longSampleRate)
+ local byteRateB = getBytes(calculatedByteRate)
+ local dataLenB = getBytes(totalDataLen)
  local header = {
- 82, 73, 70, 70,
- totalSize % 256,
- math.floor(totalSize / 256) % 256,
- math.floor(totalSize / 65536) % 256,
- math.floor(totalSize / 16777216) % 256,
- 87, 65, 86, 69,
- 102, 109, 116, 32,
- 16, 0, 0, 0,
- 1, 0,
- channels % 256, math.floor(channels / 256) % 256,
- longSampleRate % 256,
- math.floor(longSampleRate / 256) % 256,
- math.floor(longSampleRate / 65536) % 256,
- math.floor(longSampleRate / 16777216) % 256,
- calculatedByteRate % 256,
- math.floor(calculatedByteRate / 256) % 256,
- math.floor(calculatedByteRate / 65536) % 256,
- math.floor(calculatedByteRate / 16777216) % 256,
- blockAlign % 256, math.floor(blockAlign / 256) % 256,
- bitsPerSample % 256, math.floor(bitsPerSample / 256) % 256,
- 100, 97, 116, 97,
- totalDataLen % 256,
- math.floor(totalDataLen / 256) % 256,
- math.floor(totalDataLen / 65536) % 256,
- math.floor(totalDataLen / 16777216) % 256
+ 0x52, 0x49, 0x46, 0x46, -- RIFF
+ totalSizeB[1], totalSizeB[2], totalSizeB[3], totalSizeB[4],
+ 0x57, 0x41, 0x56, 0x45, -- WAVE
+ 0x66, 0x6d, 0x74, 0x20, -- fmt 
+ 0x10, 0x00, 0x00, 0x00, -- Subchunk1Size (16 for PCM)
+ 0x01, 0x00, -- AudioFormat (1 for PCM)
+ channels & 0xff, (channels >> 8) & 0xff,
+ sampleRateB[1], sampleRateB[2], sampleRateB[3], sampleRateB[4],
+ byteRateB[1], byteRateB[2], byteRateB[3], byteRateB[4],
+ blockAlign & 0xff, (blockAlign >> 8) & 0xff,
+ bitsPerSample & 0xff, (bitsPerSample >> 8) & 0xff,
+ 0x64, 0x61, 0x74, 0x61, -- data
+ dataLenB[1], dataLenB[2], dataLenB[3], dataLenB[4]
  }
  for i = 1, #header do
  outStream.write(header[i])
@@ -1264,64 +1263,71 @@ end
 
 function mergeAndSavePodcast()
  local status, err = pcall(function()
- if #audioParts == 0 then
+ if not audioParts or #audioParts == 0 then
  error("No audio parts to merge.")
  end
- import "android.util.Base64"
  import "java.io.FileOutputStream"
  import "java.io.File"
- import "java.io.FileInputStream"
+ 
  local path = activity.getCacheDir().toString() .. "/gemini_podcast_final.wav"
  local file = File(path)
+ 
  if file.exists() then
  file.delete()
+ Thread.sleep(100) -- سسٹم کو فائل ہینڈل آزاد کرنے کا وقت دیں
  end
  local os = FileOutputStream(file)
  local totalAudioLen = 0
- for i, part in ipairs(audioParts) do
- if part then
- totalAudioLen = totalAudioLen + #part
+ 
+ for i = 1, #audioParts do
+ if audioParts[i] then
+ totalAudioLen = totalAudioLen + #audioParts[i]
  end
  end
  writeWavHeader(os, totalAudioLen, 24000, 1, 48000)
- for i, part in ipairs(audioParts) do
- if part then
- os.write(part)
+ for i = 1, #audioParts do
+ if audioParts[i] then
+ os.write(audioParts[i])
+ if i % 5 == 0 then os.flush() end 
  end
  end
  os.flush()
  os.getFD().sync()
  os.close()
+ 
+ audioParts = {} 
+ collectgarbage("collect") -- زبردستی ریم صاف کرنا
+ 
  return path
  end)
  if status then
  finalPodcastPath = err
  lastGeneratedAudioPath = finalPodcastPath
  lastGeneratedAudioType = "podcast"
+ 
  runOnUi(function()
- resultText.text = "Success! Podcast merge complete and ready to play."
+ resultText.text = "Success! Podcast merge complete."
+ 
  if playButton then
  playButton.setVisibility(View.VISIBLE)
- playButton.text = "Listen to Podcast"
+ playButton.text = "Listen"
  playButton.setEnabled(true)
  end
- if downloadButton then
- downloadButton.setVisibility(View.VISIBLE)
- end
- if formatSpinner then
- formatSpinner.setVisibility(View.VISIBLE)
- end
+ 
+ if downloadButton then downloadButton.setVisibility(View.VISIBLE) end
+ if formatSpinner then formatSpinner.setVisibility(View.VISIBLE) end
  if generateButton then
  generateButton.text = "Generate Audio"
  generateButton.setEnabled(true)
  end
- if podcastProgressBar then
- podcastProgressBar.setVisibility(View.GONE)
- end
+ if podcastProgressBar then podcastProgressBar.setVisibility(View.GONE) end
  if audioPlayer then
+ if audioPlayer.isPlaying() then audioPlayer.stop() end
+ audioPlayer.reset()
  audioPlayer.release()
  audioPlayer = nil
  end
+ 
  audioPlayer = MediaPlayer()
  activePlayers["main"] = audioPlayer
  audioPlayer.setDataSource(finalPodcastPath)
@@ -1333,11 +1339,9 @@ function mergeAndSavePodcast()
  generateButton.text = "Generate Audio"
  generateButton.setEnabled(true)
  end
- if podcastProgressBar then
- podcastProgressBar.setVisibility(View.GONE)
- end
- end)
+ if podcastProgressBar then podcastProgressBar.setVisibility(View.GONE) end
  showErrorDialog("Merge Error: " .. tostring(err))
+ end)
  end
 end
 
@@ -3084,3 +3088,6 @@ function testGeminiApi(apiKey, onResult)
  if code == 200 then
  local status, data = pcall(cjson.decode, content)
  if status and data and data.candidates and #data.candidates > 0 then
+ local candidate = data.candidates[1]
+ if candidate.content and candidate.content.parts and #candidate.content.parts > 0 then
+ local responseTex
