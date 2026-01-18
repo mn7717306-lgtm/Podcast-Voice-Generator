@@ -24,7 +24,7 @@ import "android.media.PlaybackParams"
 end
 activity = this
 local UPDATE_SYSTEM_ENABLED = true
-local CURRENT_VERSION = "1.0"
+local CURRENT_VERSION = "1.1"
 local GITHUB_REPO_URL = "https://github.com/mn7717306-lgtm/Podcast-Voice-Generator"
 local GITHUB_RAW_URL = "https://raw.githubusercontent.com/mn7717306-lgtm/Podcast-Voice-Generator/main/"
 local VERSION_URL = GITHUB_RAW_URL .. "version.txt"
@@ -32,8 +32,8 @@ local UPDATE_URL = GITHUB_RAW_URL .. "update.txt"
 local MESSAGE_URL = GITHUB_RAW_URL .. "Message.txt"
 local LINK_URL = GITHUB_RAW_URL .. "Link.txt"
 local LICENSE_URL = GITHUB_RAW_URL .. "LICENSE"
-local PLUGIN_PATH = "/storage/emulated/0/瑙ｈ/Plugins/Podcast Voice Generator/main.lua"
-local PLUGIN_DIR = "/storage/emulated/0/瑙ｈ/Plugins/Podcast Voice Generator/"
+local PLUGIN_PATH = "/storage/emulated/0/解说/Plugins/Podcast Voice Generator/main.lua"
+local PLUGIN_DIR = "/storage/emulated/0/解说/Plugins/Podcast Voice Generator/"
 local UPDATE_PREFS = "UPDATE_CONFIG"
 local MESSAGE_PREFS = "MESSAGE_CONFIG"
 local LINK_PREFS = "LINK_CONFIG"
@@ -549,7 +549,7 @@ function showUpdateDialog(newVersion, updateDetails, manualCheck)
  titleLabel.textSize = 18
  titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
  titleLabel.setTextColor(0xFF2196F3)
- titleLabel.setFocusable(true) -- For screen reader focus
+ titleLabel.setFocusable(true)
  titleLabel.setGravity(Gravity.CENTER)
  mainLayout.addView(titleLabel)
  local versionLabel = TextView(activity)
@@ -601,28 +601,47 @@ function performUpdate(newVersion)
  downloadFile(GITHUB_RAW_URL .. "main.lua", function(newContent, errorMsg)
  if newContent then
  local backupPath = PLUGIN_PATH .. ".backup"
+ 
  local status, err = pcall(function()
  local currentFile = io.open(PLUGIN_PATH, "r")
  if currentFile then
  local currentContent = currentFile:read("*a")
  currentFile:close()
  local backupFile = io.open(backupPath, "w")
+ if backupFile then
  backupFile:write(currentContent)
  backupFile:close()
  end
+ end
  
  local newFile = io.open(PLUGIN_PATH, "w")
+ if newFile == nil then
+ error("Cannot write to: " .. PLUGIN_PATH .. ". Check if path exists.")
+ end
  newFile:write(newContent)
  newFile:close()
  end)
  if status then
- if File(backupPath).exists() then os.remove(backupPath) end
+ local bFile = File(backupPath)
+ if bFile.exists() then bFile.delete() end
+ 
  runOnUi(function()
- showInfoDialog("Update Successful", "Version " .. newVersion .. " has been installed. Please restart the plugin.")
+ local successDlg = LuaDialog(activity)
+ successDlg.setTitle("Update Successful")
+ successDlg.setMessage("Version " .. newVersion .. " has been installed. The plugin will now close to apply changes.")
+ successDlg.setPositiveButton("OK", function(dialog)
+ vibrate()
+ dialog.dismiss()
+ if service then
+ service.stopSelf()
+ end
+ end)
+ successDlg.setCancelable(false)
+ successDlg.show()
  end)
  else
  runOnUi(function()
- showErrorDialog("Write Error: " .. tostring(err))
+ showErrorDialog("Update Error: " .. tostring(err))
  end)
  end
  else
@@ -4068,18 +4087,18 @@ end
 
 function showAudioPlayerDialog()
  stopTutorialAudio()
- local TUTORIAL_AUDIO_PATH = "/storage/emulated/0/瑙ｈ/Plugins/Podcast Voice Generator/How to use.mp3"
+ local TUTORIAL_AUDIO_PATH = "/storage/emulated/0/解说/Plugins/Podcast Voice Generator/How to use.mp3"
  local tutorialFile = File(TUTORIAL_AUDIO_PATH)
  if not tutorialFile.exists() then
- TUTORIAL_AUDIO_PATH = "/sdcard/瑙ｈ/Plugins/Podcast Voice Generator/How to use.mp3"
+ TUTORIAL_AUDIO_PATH = "/sdcard/解说/Plugins/Podcast Voice Generator/How to use.mp3"
  tutorialFile = File(TUTORIAL_AUDIO_PATH)
  end
  if not tutorialFile.exists() then
- TUTORIAL_AUDIO_PATH = activity.getExternalFilesDir(nil).toString() .. "/瑙ｈ/Plugins/Podcast Voice Generator/How to use.mp3"
+ TUTORIAL_AUDIO_PATH = activity.getExternalFilesDir(nil).toString() .. "/解说/Plugins/Podcast Voice Generator/How to use.mp3"
  tutorialFile = File(TUTORIAL_AUDIO_PATH)
  end
  if not tutorialFile.exists() then
- showErrorDialog("Tutorial audio file not found!\n\nPlease place 'How to use.mp3' in:\n\nInternal Storage/瑙ｈ/Plugins/Podcast Voice Generator/\n\nOr\n\n" .. activity.getExternalFilesDir(nil).toString() .. "/瑙ｈ/Plugins/Podcast Voice Generator/")
+ showErrorDialog("Tutorial audio file not found!\n\nPlease place 'How to use.mp3' in:\n\nInternal Storage/解说/Plugins/Podcast Voice Generator/\n\nOr\n\n" .. activity.getExternalFilesDir(nil).toString() .. "/解说/Plugins/Podcast Voice Generator/")
  return
  end
  local isPlaying = false
