@@ -1,1 +1,7 @@
-Yes, everyone together say, long live Nafees Khan, praise be to God, thanks to God's mercy, praise be to God.
+This message is from Muhammad Nafees Khan.
+
+To all users currently utilizing our extension, your valuable feedback is crucial. We earnestly request you to share your insights, enabling us to continuously improve and refine the extension.
+
+To submit your feedback, please open the extension and navigate to the 'Configuration and About' section. Within this section, you will find the 'Feedback to Developer' option. Click on this option and articulate your feedback or suggestions comprehensively. Whether it's reporting a specific issue, proposing a new feature, or providing general improvement ideas, please detail it there. Upon clicking the 'Send' button, your valuable input will be successfully submitted to us.
+
+Your cooperation is highly valued and deeply appreciated.
