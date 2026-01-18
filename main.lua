@@ -3090,4 +3090,2115 @@ function testGeminiApi(apiKey, onResult)
  if status and data and data.candidates and #data.candidates > 0 then
  local candidate = data.candidates[1]
  if candidate.content and candidate.content.parts and #candidate.content.parts > 0 then
- local responseTex
+ local responseText = candidate.content.parts[1].text
+ runOnUi(function()
+ onResult(true, "Google API working! Response: " .. tostring(responseText))
+ end)
+ else
+ runOnUi(function()
+ onResult(false, "API Error: Response blocked by safety filters or empty content.")
+ end)
+ end
+ else
+ runOnUi(function()
+ onResult(false, "JSON parsing error: " .. (content or ""):sub(1, 100))
+ end)
+ end
+ elseif code == 400 then
+ runOnUi(function()
+ onResult(false, "Error 400: Invalid API Key or malformed request.")
+ end)
+ elseif code == 403 then
+ runOnUi(function()
+ onResult(false, "Error 403: Permission denied. Check your API key restrictions.")
+ end)
+ elseif code == 429 then
+ runOnUi(function()
+ onResult(false, "Error 429: Rate limit exceeded. Try again in a minute.")
+ end)
+ else
+ runOnUi(function()
+ onResult(false, "HTTP Error: " .. code .. " - Check connection.")
+ end)
+ end
+ end)
+end
+
+function testOpenAIApi(apiKey, onResult)
+ if SELECTED_API_PROVIDER ~= "OpenAI Official (GPT-4o mini TTS)" then
+ onResult(false, "Please select OpenAI Official as provider for testing.")
+ return
+ end
+ local testText = "This is a short API test."
+ local testVoice = "alloy"
+ local requestBody = {
+ model = OPENAI_TTS_MODEL,
+ input = testText,
+ voice = testVoice,
+ speed = 1.0,
+ response_format = "mp3"
+ }
+ local headers = HashMap()
+ headers.put("Content-Type", "application/json")
+ headers.put("Authorization", "Bearer " .. apiKey)
+ Http.post(API_ENDPOINTS["OpenAI Official (GPT-4o mini TTS)"](apiKey), cjson.encode(requestBody), headers, function(code, content)
+ if code == 200 then
+ runOnUi(function()
+ onResult(true, "OpenAI API working! Audio response received successfully.")
+ end)
+ elseif code == 401 then
+ runOnUi(function()
+ onResult(false, "OpenAI Error 401: Invalid API key.")
+ end)
+ else
+ runOnUi(function()
+ onResult(false, "OpenAI HTTP Error: " .. code .. " - " .. (content or ""):sub(1, math.min(string.len(content or ""), 100)) .. "...")
+ end)
+ end
+ end)
+end
+
+function showGeminiConfigDialog()
+ local tempApiKey = API_KEY
+ local tempApiProvider = SELECTED_API_PROVIDER
+ local scrollView = ScrollView(activity)
+ local mainLayout = LinearLayout(activity)
+ mainLayout.setOrientation(LinearLayout.VERTICAL)
+ mainLayout.setPadding(dip2px(10), dip2px(10), dip2px(10), dip2px(10))
+ local titleLabel = TextView(activity)
+ titleLabel.text = "API Configuration"
+ titleLabel.textSize = 14
+ titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
+ titleLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local titleLabelParams = titleLabel.getLayoutParams()
+ if titleLabelParams then
+ titleLabelParams.topMargin = dip2px(5)
+ titleLabelParams.bottomMargin = dip2px(10)
+ end
+ mainLayout.addView(titleLabel)
+ local providerLabel = TextView(activity)
+ providerLabel.text = "1. Select API Provider:"
+ providerLabel.textSize = 12
+ providerLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local providerLabelParams = providerLabel.getLayoutParams()
+if providerLabelParams then
+ providerLabelParams.topMargin = dip2px(10)
+end
+mainLayout.addView(providerLabel)
+local providerSpinner = Spinner(activity)
+providerSpinner.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+mainLayout.addView(providerSpinner)
+local keyLabel = TextView(activity)
+keyLabel.text = "2. API Key:"
+keyLabel.textSize = 12
+keyLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+local keyLabelParams = keyLabel.getLayoutParams()
+if keyLabelParams then
+ keyLabelParams.topMargin = dip2px(10)
+end
+mainLayout.addView(keyLabel)
+local keyInput = EditText(activity)
+keyInput.text = tempApiKey
+keyInput.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+keyInput.hint = "Enter API Key..."
+mainLayout.addView(keyInput)
+local noteLabel = TextView(activity)
+noteLabel.text = "Note: Gemini is recommended for better performance. For OpenAI, use official keys."
+noteLabel.textSize = 10
+noteLabel.setTextColor(0xFF555555)
+noteLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+local noteLabelParams = noteLabel.getLayoutParams()
+if noteLabelParams then
+ noteLabelParams.topMargin = dip2px(5)
+end
+mainLayout.addView(noteLabel)
+local testButton = Button(activity)
+testButton.text = "Test API Connection"
+testButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+local testButtonParams = testButton.getLayoutParams()
+if testButtonParams then
+ testButtonParams.topMargin = dip2px(10)
+end
+mainLayout.addView(testButton)
+local resultText = TextView(activity)
+resultText.text = "Test status: Not tested"
+resultText.textSize = 10
+resultText.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+local resultTextParams = resultText.getLayoutParams()
+if resultTextParams then
+ resultTextParams.topMargin = dip2px(5)
+end
+mainLayout.addView(resultText)
+scrollView.addView(mainLayout)
+local d = LuaDialog(activity)
+d.setTitle("API Configuration")
+d.setView(scrollView)
+d.setPositiveButton("Save", function()
+ API_KEY = tostring(keyInput.text)
+ SELECTED_API_PROVIDER = tempApiProvider
+ if type(updateVoicesBasedOnProvider) == "function" then
+ updateVoicesBasedOnProvider()
+ end
+ if type(saveGeminiConfig) == "function" then
+ saveGeminiConfig()
+ end
+ runOnUi(function()
+ showInfoDialog("Success", "Configuration saved! Provider set to: " .. SELECTED_API_PROVIDER)
+ end)
+end)
+d.setNegativeButton("Cancel", nil)
+d.show()
+local providerAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, API_PROVIDERS)
+providerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+providerSpinner.setAdapter(providerAdapter)
+local providerIndex = 0
+for i=1, #API_PROVIDERS do
+ if API_PROVIDERS[i] == tempApiProvider then
+ providerIndex = i - 1
+ break
+ end
+end
+providerSpinner.setSelection(providerIndex)
+providerSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener{
+ onItemSelected = function(parent, view, position, id)
+ tempApiProvider = API_PROVIDERS[position + 1]
+ resultText.text = "Test status: Need to test again"
+ end
+})
+keyInput.addTextChangedListener(TextWatcher{
+ onTextChanged = function(s, start, before, count)
+ tempApiKey = tostring(s)
+ resultText.text = "Test status: Need to test again"
+ end
+})
+testButton.onClick = function()
+ vibrate()
+ local key = tostring(keyInput.text)
+ local provider = API_PROVIDERS[providerSpinner.getSelectedItemPosition() + 1]
+ if #key == 0 then
+ resultText.text = "Error: Please enter API key"
+ return
+ end
+ if provider == "OpenAI Official (GPT-4o mini TTS)" and not key:match("^sk%-") then
+ resultText.text = "Error: This doesn't look like an OpenAI API key"
+ return
+ end
+ testButton.text = "Testing..."
+ testButton.setEnabled(false)
+ resultText.text = "Test status: Connecting..."
+ Thread(Runnable{ run = function()
+ if provider == "OpenAI Official (GPT-4o mini TTS)" then
+ if type(testOpenAIApi) == "function" then
+ testOpenAIApi(key, function(success, message)
+ runOnUi(function()
+ testButton.text = "Test API Connection"
+ testButton.setEnabled(true)
+ resultText.text = message
+ end)
+ end)
+ else
+ runOnUi(function()
+ testButton.setEnabled(true)
+
+ resultText.text = "Error: testOpenAIApi function not found"
+ end)
+ end
+ else
+ if type(testGeminiApi) == "function" then
+ testGeminiApi(key, function(success, message)
+ runOnUi(function()
+ testButton.text = "Test API Connection"
+ testButton.setEnabled(true)
+ resultText.text = message
+ end)
+ end)
+ else
+ runOnUi(function()
+ testButton.setEnabled(true)
+
+ resultText.text = "Error: testGeminiApi function not found"
+ end)
+ end
+ end
+ end }).start()
+end
+end
+
+function getAudioFilesList()
+ local dir = File(USER_AUDIO_DIR)
+ local files = {}
+ if not dir.exists() then
+ dir.mkdirs()
+ return files
+ end
+ local fileList = dir.listFiles()
+ if not fileList then
+ return files
+ end
+ for i=0, #fileList-1 do
+ local file = fileList[i]
+ if file and file.isFile() then
+ local name = file.getName()
+ local path = file.getAbsolutePath()
+ local size = file.length()
+ local lastModified = file.lastModified()
+ if name:match("%.wav$") or name:match("%.mp3$") or name:match("%.ogg$") or
+ name:match("%.aac$") or name:match("%.wma$") then
+ table.insert(files, {
+ name = name,
+ path = path,
+ size = size,
+ lastModified = lastModified,
+ file = file
+ })
+ end
+ end
+ end
+ table.sort(files, function(a, b)
+ return a.lastModified > b.lastModified
+ end)
+ return files
+end
+
+function showProfessionalPlayer(file)
+ local player = MediaPlayer()
+ local playerState = "stopped"
+ local updateTask = nil
+ local audioFiles = getAudioFilesList()
+ local currentFileIndex = 1
+ for i, audioFile in ipairs(audioFiles) do
+ if audioFile.path == file.path then
+ currentFileIndex = i
+ break
+ end
+ end
+ local scrollView = ScrollView(activity)
+ local mainLayout = LinearLayout(activity)
+ mainLayout.setOrientation(LinearLayout.VERTICAL)
+ mainLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
+ mainLayout.setPadding(dip2px(10), dip2px(10), dip2px(10), dip2px(10))
+ local titleLabel = TextView(activity)
+ titleLabel.text = file.name
+ titleLabel.textSize = 16
+ titleLabel.gravity = Gravity.CENTER
+ titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
+ titleLabel.setTextColor(0xFF333333)
+ local titleParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ titleParams.bottomMargin = dip2px(8)
+ titleLabel.setLayoutParams(titleParams)
+ mainLayout.addView(titleLabel)
+ local fileInfoText = TextView(activity)
+ fileInfoText.text = string.format("Track %d of %d", currentFileIndex, #audioFiles)
+ fileInfoText.textSize = 10
+ fileInfoText.gravity = Gravity.CENTER
+ fileInfoText.setTextColor(0xFF666666)
+ local fileInfoParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ fileInfoParams.bottomMargin = dip2px(10)
+ fileInfoText.setLayoutParams(fileInfoParams)
+ mainLayout.addView(fileInfoText)
+ local seekBar = SeekBar(activity)
+ local seekParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ seekParams.bottomMargin = dip2px(8)
+ seekBar.setLayoutParams(seekParams)
+ mainLayout.addView(seekBar)
+ local timeLayout = LinearLayout(activity)
+ timeLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ timeLayout.setPadding(0, 0, 0, dip2px(10))
+ local currentTime = TextView(activity)
+ currentTime.text = "00:00"
+ currentTime.textSize = 10
+ currentTime.setTextColor(0xFF2196F3)
+ currentTime.setTypeface(Typeface.DEFAULT_BOLD)
+ currentTime.setLayoutParams(LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))
+ timeLayout.addView(currentTime)
+ local totalTime = TextView(activity)
+ totalTime.text = "00:00"
+ totalTime.textSize = 10
+ totalTime.setTextColor(0xFF666666)
+ totalTime.gravity = Gravity.RIGHT
+ totalTime.setLayoutParams(LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))
+ timeLayout.addView(totalTime)
+ mainLayout.addView(timeLayout)
+ local speedLabel = TextView(activity)
+ speedLabel.text = "Playback Speed"
+ speedLabel.textSize = 12
+ speedLabel.setTypeface(Typeface.DEFAULT_BOLD)
+ speedLabel.setTextColor(0xFF333333)
+ local speedLabelParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ speedLabelParams.bottomMargin = dip2px(5)
+ speedLabel.setLayoutParams(speedLabelParams)
+ mainLayout.addView(speedLabel)
+ local speedBar = SeekBar(activity)
+ speedBar.max = 200
+ speedBar.progress = 100
+ speedBar.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ mainLayout.addView(speedBar)
+ local speedValueText = TextView(activity)
+ speedValueText.text = "Speed: 1.0x"
+ speedValueText.textSize = 10
+ speedValueText.gravity = Gravity.CENTER
+ speedValueText.setTextColor(0xFF666666)
+ local speedValueParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ speedValueParams.topMargin = dip2px(5)
+ speedValueParams.bottomMargin = dip2px(20)
+ speedValueText.setLayoutParams(speedValueParams)
+ mainLayout.addView(speedValueText)
+ local spacer = View(activity)
+ local spacerParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1)
+ spacer.setLayoutParams(spacerParams)
+ mainLayout.addView(spacer)
+ local controlRow1 = LinearLayout(activity)
+ controlRow1.setOrientation(LinearLayout.HORIZONTAL)
+ controlRow1.gravity = Gravity.CENTER
+ controlRow1.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ controlRow1.setPadding(0, 0, 0, dip2px(10))
+ local prevTrackButton = Button(activity)
+ prevTrackButton.text = "鈴�"
+ prevTrackButton.setTextSize(16)
+ prevTrackButton.setBackgroundResource(android.R.drawable.btn_default)
+ local prevTrackParams = LinearLayout.LayoutParams(dip2px(50), dip2px(40))
+ prevTrackParams.rightMargin = dip2px(5)
+ prevTrackButton.setLayoutParams(prevTrackParams)
+ if currentFileIndex == 1 then
+ prevTrackButton.setEnabled(false)
+ prevTrackButton.setTextColor(0xFFAAAAAA)
+ end
+ controlRow1.addView(prevTrackButton)
+ local rewindButton = Button(activity)
+ rewindButton.text = "鈴�"
+ rewindButton.setTextSize(16)
+ rewindButton.setBackgroundResource(android.R.drawable.btn_default)
+ local rewindParams = LinearLayout.LayoutParams(dip2px(50), dip2px(40))
+ rewindParams.rightMargin = dip2px(5)
+ rewindButton.setLayoutParams(rewindParams)
+ controlRow1.addView(rewindButton)
+ local playPauseButton = Button(activity)
+ playPauseButton.text = "鈻�"
+ playPauseButton.setTextSize(18)
+ playPauseButton.setTypeface(Typeface.DEFAULT_BOLD)
+ playPauseButton.setBackgroundResource(android.R.drawable.btn_default)
+ local playPauseParams = LinearLayout.LayoutParams(dip2px(60), dip2px(50))
+ playPauseButton.setLayoutParams(playPauseParams)
+ controlRow1.addView(playPauseButton)
+ local forwardButton = Button(activity)
+ forwardButton.text = "鈴�"
+ forwardButton.setTextSize(16)
+ forwardButton.setBackgroundResource(android.R.drawable.btn_default)
+ local forwardParams = LinearLayout.LayoutParams(dip2px(50), dip2px(40))
+ forwardParams.leftMargin = dip2px(5)
+ forwardButton.setLayoutParams(forwardParams)
+ controlRow1.addView(forwardButton)
+ local nextTrackButton = Button(activity)
+ nextTrackButton.text = "鈴�"
+ nextTrackButton.setTextSize(16)
+ nextTrackButton.setBackgroundResource(android.R.drawable.btn_default)
+ local nextTrackParams = LinearLayout.LayoutParams(dip2px(50), dip2px(40))
+ nextTrackParams.leftMargin = dip2px(5)
+ nextTrackButton.setLayoutParams(nextTrackParams)
+ if currentFileIndex == #audioFiles then
+ nextTrackButton.setEnabled(false)
+ nextTrackButton.setTextColor(0xFFAAAAAA)
+ end
+ controlRow1.addView(nextTrackButton)
+ mainLayout.addView(controlRow1)
+ local controlRow2 = LinearLayout(activity)
+ controlRow2.setOrientation(LinearLayout.HORIZONTAL)
+ controlRow2.gravity = Gravity.CENTER
+ controlRow2.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local closeButton = Button(activity)
+ closeButton.text = "CLOSE PLAYER"
+ closeButton.setTextSize(12)
+ closeButton.setTypeface(Typeface.DEFAULT_BOLD)
+ closeButton.setTextColor(0xFFFFFFFF)
+ closeButton.setBackgroundColor(0xFFF44336)
+ local closeParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(40))
+ closeParams.topMargin = dip2px(8)
+ closeButton.setLayoutParams(closeParams)
+ controlRow2.addView(closeButton)
+ mainLayout.addView(controlRow2)
+ scrollView.addView(mainLayout)
+ local pd = LuaDialog(activity)
+ .setTitle("Professional Audio Player")
+ .setView(scrollView)
+ .show()
+
+ local function stopAndCleanup()
+ playerState = "stopped"
+ if updateTask then
+ updateTask.cancel()
+ updateTask = nil
+ end
+ pcall(function()
+ if player then
+ local playerReleased = false
+ pcall(function()
+ player.isPlaying()
+ end, function(err)
+ playerReleased = true
+ end)
+ if not playerReleased then
+ if player.isPlaying() then
+ player.stop()
+ end
+ player.release()
+ end
+ player = nil
+ end
+ end)
+ end
+
+ local function updatePlayerState()
+ if playerState == "playing" then
+ playPauseButton.text = "鈴�"
+ elseif playerState == "paused" then
+ playPauseButton.text = "鈻�"
+ else
+ playPauseButton.text = "鈻�"
+ end
+ end
+
+ local function loadNewFile(newFile, newIndex)
+ stopAndCleanup()
+ player = MediaPlayer()
+ player.setDataSource(newFile.path)
+ player.prepare()
+ playerState = "stopped"
+ titleLabel.text = newFile.name
+ currentFileIndex = newIndex
+ fileInfoText.text = string.format("Track %d of %d", currentFileIndex, #audioFiles)
+ local duration = player.getDuration()
+ totalTime.text = string.format("%02d:%02d", math.floor(duration/60000), math.floor((duration/1000)%60))
+ seekBar.setMax(duration)
+ seekBar.setProgress(0)
+ currentTime.text = "00:00"
+ prevTrackButton.setEnabled(currentFileIndex > 1)
+ nextTrackButton.setEnabled(currentFileIndex < #audioFiles)
+ prevTrackButton.setTextColor(currentFileIndex > 1 and 0xFF000000 or 0xFFAAAAAA)
+ nextTrackButton.setTextColor(currentFileIndex < #audioFiles and 0xFF000000 or 0xFFAAAAAA)
+ updatePlayerState()
+ speedBar.setProgress(100)
+ speedValueText.text = "Speed: 1.0x"
+ end
+ player.setDataSource(file.path)
+ player.prepare()
+ local duration = player.getDuration()
+ totalTime.text = string.format("%02d:%02d", math.floor(duration/60000), math.floor((duration/1000)%60))
+ seekBar.setMax(duration)
+ seekBar.setOnSeekBarChangeListener(SeekBar.OnSeekBarChangeListener{
+ onProgressChanged = function(seekBar, progress, fromUser)
+ if fromUser then
+ currentTime.text = string.format("%02d:%02d", math.floor(progress/60000), math.floor((progress/1000)%60))
+ end
+ end,
+ onStartTrackingTouch = function(seekBar)
+ end,
+ onStopTrackingTouch = function(seekBar)
+ pcall(function()
+ if player and playerState == "playing" then
+ player.pause()
+ player.seekTo(seekBar.getProgress())
+ player.start()
+ elseif player then
+ player.seekTo(seekBar.getProgress())
+ end
+ end)
+ end
+ })
+ playPauseButton.onClick = function()
+ vibrate()
+ pcall(function()
+ if playerState == "stopped" then
+ player.start()
+ playerState = "playing"
+
+ local function update()
+ if playerState == "playing" and player and pcall(function() return player.isPlaying() end) then
+ local currentPos = player.getCurrentPosition()
+ seekBar.setProgress(currentPos)
+ currentTime.text = string.format("%02d:%02d", math.floor(currentPos/60000), math.floor((currentPos/1000)%60))
+ updateTask = task(1000, update)
+ end
+ end
+ update()
+ elseif playerState == "playing" then
+ player.pause()
+ playerState = "paused"
+ if updateTask then
+ updateTask.cancel()
+ updateTask = nil
+ end
+ elseif playerState == "paused" then
+ player.start()
+ playerState = "playing"
+
+ local function update()
+ if playerState == "playing" and player and pcall(function() return player.isPlaying() end) then
+ local currentPos = player.getCurrentPosition()
+ seekBar.setProgress(currentPos)
+ currentTime.text = string.format("%02d:%02d", math.floor(currentPos/60000), math.floor((currentPos/1000)%60))
+ updateTask = task(1000, update)
+ end
+ end
+ update()
+ end
+ updatePlayerState()
+ end)
+ end
+ forwardButton.onClick = function()
+ vibrate()
+ pcall(function()
+ if player then
+ local newPos = player.getCurrentPosition() + 5000
+ if newPos > duration then
+ newPos = duration
+ end
+ player.seekTo(newPos)
+ seekBar.setProgress(newPos)
+ currentTime.text = string.format("%02d:%02d", math.floor(newPos/60000), math.floor((newPos/1000)%60))
+ end
+ end)
+ end
+ rewindButton.onClick = function()
+ vibrate()
+ pcall(function()
+ if player then
+ local newPos = player.getCurrentPosition() - 5000
+ if newPos < 0 then
+ newPos = 0
+ end
+ player.seekTo(newPos)
+ seekBar.setProgress(newPos)
+ currentTime.text = string.format("%02d:%02d", math.floor(newPos/60000), math.floor((newPos/1000)%60))
+ end
+ end)
+ end
+ prevTrackButton.onClick = function()
+ vibrate()
+ if currentFileIndex > 1 then
+ loadNewFile(audioFiles[currentFileIndex - 1], currentFileIndex - 1)
+ end
+ end
+ nextTrackButton.onClick = function()
+ vibrate()
+ if currentFileIndex < #audioFiles then
+ loadNewFile(audioFiles[currentFileIndex + 1], currentFileIndex + 1)
+ end
+ end
+ speedBar.setOnSeekBarChangeListener(SeekBar.OnSeekBarChangeListener{
+ onProgressChanged = function(v, p)
+ pcall(function()
+ if player then
+ local speed = p / 100
+ if speed < 0.5 then speed = 0.5 end
+ if speed > 2.0 then speed = 2.0 end
+ speedValueText.text = string.format("Speed: %.1fx", speed)
+ if Build.VERSION.SDK_INT >= 23 then
+ local params = PlaybackParams()
+ params.setSpeed(speed)
+ player.setPlaybackParams(params)
+ end
+ end
+ end)
+ end,
+ onStartTrackingTouch = function(v)
+ end,
+ onStopTrackingTouch = function(v)
+ end
+ })
+ closeButton.onClick = function()
+ vibrate()
+ stopAndCleanup()
+ pd.dismiss()
+ end
+ pd.setOnDismissListener(DialogInterface.OnDismissListener{
+ onDismiss = function()
+ stopAndCleanup()
+ end
+ })
+end
+
+function showAudioManagementDialog()
+ local audioFiles = getAudioFilesList()
+ local scrollView = ScrollView(activity)
+ local mainLayout = LinearLayout(activity)
+ mainLayout.setOrientation(LinearLayout.VERTICAL)
+ mainLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
+ mainLayout.setPadding(dip2px(10), dip2px(10), dip2px(10), dip2px(10))
+ local titleLabel = TextView(activity)
+ titleLabel.text = "Audio Files Manager"
+ titleLabel.textSize = 16
+ titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
+ titleLabel.gravity = Gravity.CENTER
+ titleLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ mainLayout.addView(titleLabel)
+ local countLabel = TextView(activity)
+ countLabel.text = "Total Files: " .. #audioFiles
+ countLabel.textSize = 10
+ countLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ mainLayout.addView(countLabel)
+ local fileContainer = LinearLayout(activity)
+ fileContainer.setOrientation(LinearLayout.VERTICAL)
+ fileContainer.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1))
+ mainLayout.addView(fileContainer)
+ local buttonLayout = LinearLayout(activity)
+ buttonLayout.setOrientation(LinearLayout.HORIZONTAL)
+ buttonLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local refreshButton = Button(activity)
+ refreshButton.text = "Refresh"
+ refreshButton.setLayoutParams(LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))
+ buttonLayout.addView(refreshButton)
+ local closeButton = Button(activity)
+ closeButton.text = "Close"
+ closeButton.setLayoutParams(LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))
+ buttonLayout.addView(closeButton)
+ mainLayout.addView(buttonLayout)
+ scrollView.addView(mainLayout)
+ local d = LuaDialog(activity)
+ .setTitle("Manage Audio Files")
+ .setView(scrollView)
+ .show()
+ local currentOptionsDialog = nil
+
+ local function displayFiles()
+ fileContainer.removeAllViews()
+ if #audioFiles == 0 then
+ local emptyText = TextView(activity)
+ emptyText.text = "No audio files found."
+ emptyText.setGravity(Gravity.CENTER)
+ emptyText.setPadding(dip2px(20), dip2px(20), dip2px(20), dip2px(20))
+ fileContainer.addView(emptyText)
+ return
+ end
+ for i, file in ipairs(audioFiles) do
+ local fileItem = LinearLayout(activity)
+ fileItem.setOrientation(LinearLayout.VERTICAL)
+ fileItem.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ fileItem.setPadding(dip2px(10), dip2px(10), dip2px(10), dip2px(10))
+ fileItem.setBackgroundColor(0xFFF5F5F5)
+ local nameText = TextView(activity)
+ nameText.text = file.name
+ nameText.textSize = 12
+ nameText.setTextColor(0xFF333333)
+ nameText.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ nameText.setSingleLine(true)
+ nameText.setEllipsize(TextUtils.TruncateAt.END)
+ fileItem.addView(nameText)
+ local infoLayout = LinearLayout(activity)
+ infoLayout.setOrientation(LinearLayout.HORIZONTAL)
+ infoLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local params = infoLayout.getLayoutParams()
+ if params then
+ params.topMargin = dip2px(5)
+ infoLayout.setLayoutParams(params)
+ end
+ local sizeText = TextView(activity)
+ sizeText.text = string.format("%.1f KB", file.size/1024)
+ sizeText.textSize = 8
+ sizeText.setTextColor(0xFF666666)
+ sizeText.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ infoLayout.addView(sizeText)
+ local spacer = View(activity)
+ spacer.setLayoutParams(LinearLayout.LayoutParams(dip2px(10), dip2px(1)))
+ infoLayout.addView(spacer)
+ local dateText = TextView(activity)
+ dateText.text = os.date("%Y-%m-%d %H:%M", math.floor(file.lastModified/1000))
+ dateText.textSize = 8
+ dateText.setTextColor(0xFF666666)
+ dateText.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ infoLayout.addView(dateText)
+ fileItem.addView(infoLayout)
+ fileContainer.addView(fileItem)
+ local divider = View(activity)
+ divider.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(5)))
+ fileContainer.addView(divider)
+ fileItem.onClick = function()
+ vibrate()
+ showProfessionalPlayer(file)
+ end
+ fileItem.onLongClick = function()
+ vibrate()
+ showFileOptionsDialog(file, d)
+ return true
+ end
+ end
+ end
+
+ function showFileOptionsDialog(file, parentDialog)
+ if currentOptionsDialog then
+ currentOptionsDialog.dismiss()
+ currentOptionsDialog = nil
+ end
+ local options = {
+ "Play with Player",
+ "Share",
+ "Rename",
+ "Delete"
+ }
+ local dlgLayout = LinearLayout(activity)
+ dlgLayout.setOrientation(LinearLayout.VERTICAL)
+ local padding = dip2px(10)
+ dlgLayout.setPadding(padding, padding, padding, padding)
+ local scrollView = ScrollView(activity)
+ scrollView.addView(dlgLayout)
+ for i, option in ipairs(options) do
+ local btn = Button(activity)
+ btn.text = option
+ btn.setTextSize(14)
+ btn.setContentDescription(option)
+ local btnParams = LinearLayout.LayoutParams(
+ LinearLayout.LayoutParams.MATCH_PARENT,
+ dip2px(40)
+ )
+ if i < #options then
+ btnParams.bottomMargin = dip2px(5)
+ end
+ btn.setLayoutParams(btnParams)
+ btn.onClick = function()
+ vibrate()
+ if currentOptionsDialog then
+ currentOptionsDialog.dismiss()
+ currentOptionsDialog = nil
+ end
+ if parentDialog and option ~= "Play with Player" and option ~= "Share" then
+ parentDialog.dismiss()
+ end
+ if option == "Play with Player" then
+ if showProfessionalPlayer then
+ showProfessionalPlayer(file)
+ else
+
+ showErrorDialog("Player function not found.")
+ end
+ elseif option == "Share" then
+ if shareAudioFile then
+ shareAudioFile(file)
+ else
+
+ showErrorDialog("Share function not found.")
+ end
+ elseif option == "Rename" then
+ if showRenameDialog then
+ showRenameDialog(file, parentDialog)
+ else
+
+ showErrorDialog("Rename function not found.")
+ end
+ elseif option == "Delete" then
+ local confirmDlg = LuaDialog(activity)
+ confirmDlg.setTitle("Delete File")
+ confirmDlg.setMessage("Are you sure you want to delete this file: " .. file.name .. "?")
+ confirmDlg.setPositiveButton("Delete", function()
+ local filePath = file.absolutePath or ("/storage/emulated/0/Audio/Podcast Generator/" .. file.name)
+ local targetFile = File(filePath)
+ if targetFile.exists() and targetFile.delete() then
+ showInfoDialog("Success", "File deleted successfully!")
+ if getAudioFilesList then
+ audioFiles = getAudioFilesList()
+ if countLabel then countLabel.text = "Total Files: " .. #audioFiles end
+ if displayFiles then displayFiles() end
+ end
+ else
+ showErrorDialog("Failed to delete file. Check permissions.")
+ end
+ confirmDlg.dismiss()
+ end)
+ confirmDlg.setNegativeButton("Cancel", function()
+ confirmDlg.dismiss()
+ end)
+ confirmDlg.show()
+ end
+ end
+ dlgLayout.addView(btn)
+ end
+ local cancelBtn = Button(activity)
+ cancelBtn.text = "Cancel"
+ cancelBtn.setTextSize(14)
+ cancelBtn.setTextColor(0xFFF44336)
+ local cancelParams = LinearLayout.LayoutParams(
+ LinearLayout.LayoutParams.MATCH_PARENT,
+ dip2px(40)
+ )
+ cancelParams.topMargin = dip2px(10)
+ cancelBtn.setLayoutParams(cancelParams)
+ cancelBtn.onClick = function()
+ vibrate()
+ if currentOptionsDialog then
+ currentOptionsDialog.dismiss()
+ end
+ end
+ dlgLayout.addView(cancelBtn)
+ local dlg = LuaDialog(activity)
+ dlg.setTitle("File Options: " .. file.name)
+ dlg.setView(scrollView)
+ dlg.show()
+ currentOptionsDialog = dlg
+ dlg.setOnDismissListener({
+ onDismiss = function()
+ currentOptionsDialog = nil
+ end
+ })
+ end
+
+ function shareAudioFile(file)
+ if currentOptionsDialog then
+ currentOptionsDialog.dismiss()
+ currentOptionsDialog = nil
+ end
+ local filePath = "/storage/emulated/0/Audio/Podcast Generator/" .. file.name
+ local audioFile = File(filePath)
+ if not audioFile.exists() then
+ showErrorDialog("File not found: " .. file.name)
+ return
+ end
+ local Intent = luajava.bindClass("android.content.Intent")
+ local Uri = luajava.bindClass("android.net.Uri")
+ local Build = luajava.bindClass("android.os.Build")
+ local StrictMode = luajava.bindClass("android.os.StrictMode")
+ local FileInputStream = luajava.bindClass("java.io.FileInputStream")
+ local FileOutputStream = luajava.bindClass("java.io.FileOutputStream")
+ local FileClass = luajava.bindClass("java.io.File")
+ local status, err = pcall(function()
+ if Build.VERSION.SDK_INT >= 24 then
+ local builder = StrictMode.VmPolicy.Builder()
+ StrictMode.setVmPolicy(builder.build())
+ end
+ local shareIntent = Intent(Intent.ACTION_SEND)
+ shareIntent.setType("audio/*")
+ local contentUri = Uri.fromFile(audioFile)
+ shareIntent.putExtra(Intent.EXTRA_STREAM, contentUri)
+ shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+ shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+ local chooser = Intent.createChooser(shareIntent, "Share Audio: " .. file.name)
+ chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+ activity.startActivity(chooser)
+ vibrate()
+ end)
+ if not status then
+ pcall(function()
+ local tempDir = activity.getExternalCacheDir()
+ if tempDir then
+ local tempFile = FileClass(tempDir, "share_" .. file.name)
+ local input = FileInputStream(audioFile)
+ local output = FileOutputStream(tempFile)
+ local buffer = byte[4096]
+ local bytesRead = input.read(buffer)
+ while bytesRead ~= -1 do
+ output.write(buffer, 0, bytesRead)
+ bytesRead = input.read(buffer)
+ end
+ output.flush()
+ output.close()
+ input.close()
+ local simpleIntent = Intent(Intent.ACTION_SEND)
+ simpleIntent.setType("audio/*")
+ simpleIntent.putExtra(Intent.EXTRA_STREAM, Uri.fromFile(tempFile))
+ simpleIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+ simpleIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+ local finalChooser = Intent.createChooser(simpleIntent, "Share via Cache")
+ finalChooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+ activity.startActivity(finalChooser)
+ else
+ showErrorDialog("Sharing failure: " .. tostring(err))
+ end
+ end)
+ end
+ end
+
+ function showRenameDialog(file, parentDialog)
+ local renameInput = EditText(activity)
+ renameInput.text = file.name
+ local container = LinearLayout(activity)
+ container.setOrientation(LinearLayout.VERTICAL)
+ container.setPadding(dip2px(20), dip2px(10), dip2px(20), dip2px(10))
+ container.addView(renameInput)
+ local renameDlg = LuaDialog(activity)
+ renameDlg.setTitle("Rename Audio File")
+ renameDlg.setView(container)
+ renameDlg.setPositiveButton("Rename", function()
+ local newName = tostring(renameInput.text)
+ if #newName > 0 then
+ local oldPath = "/storage/emulated/0/Audio/Podcast Generator/" .. file.name
+ local newPath = "/storage/emulated/0/Audio/Podcast Generator/" .. newName
+ local oldFile = File(oldPath)
+ local newFile = File(newPath)
+ if oldFile.renameTo(newFile) then
+ showInfoDialog("Success", "File renamed successfully!")
+ audioFiles = getAudioFilesList()
+ countLabel.text = "Total Files: " .. #audioFiles
+ displayFiles()
+ else
+ showErrorDialog("Failed to rename file.")
+ end
+ end
+ renameDlg.dismiss()
+ end)
+ renameDlg.setNegativeButton("Cancel", function()
+ renameDlg.dismiss()
+ end)
+ renameDlg.show()
+ end
+ refreshButton.onClick = function()
+ vibrate()
+ audioFiles = getAudioFilesList()
+ countLabel.text = "Total Files: " .. #audioFiles
+ displayFiles()
+ end
+ closeButton.onClick = function()
+ vibrate()
+ d.dismiss()
+ end
+ displayFiles()
+end
+
+function formatFileSize(bytes)
+ if bytes < 1024 then
+ return bytes .. " B"
+ elseif bytes < 1024 * 1024 then
+ return string.format("%.1f KB", bytes / 1024)
+ else
+ return string.format("%.1f MB", bytes / (1024 * 1024))
+ end
+end
+
+function formatDate(timestamp)
+ local date = Date(timestamp)
+ local format = SimpleDateFormat("dd/MM/yy HH:mm")
+ return format.format(date)
+end
+
+function showAudioPlayerDialog()
+ stopTutorialAudio()
+ local TUTORIAL_AUDIO_PATH = "/storage/emulated/0/瑙ｈ/Plugins/Podcast Voice Generator/How to use.mp3"
+ local tutorialFile = File(TUTORIAL_AUDIO_PATH)
+ if not tutorialFile.exists() then
+ TUTORIAL_AUDIO_PATH = "/sdcard/瑙ｈ/Plugins/Podcast Voice Generator/How to use.mp3"
+ tutorialFile = File(TUTORIAL_AUDIO_PATH)
+ end
+ if not tutorialFile.exists() then
+ TUTORIAL_AUDIO_PATH = activity.getExternalFilesDir(nil).toString() .. "/瑙ｈ/Plugins/Podcast Voice Generator/How to use.mp3"
+ tutorialFile = File(TUTORIAL_AUDIO_PATH)
+ end
+ if not tutorialFile.exists() then
+ showErrorDialog("Tutorial audio file not found!\n\nPlease place 'How to use.mp3' in:\n\nInternal Storage/瑙ｈ/Plugins/Podcast Voice Generator/\n\nOr\n\n" .. activity.getExternalFilesDir(nil).toString() .. "/瑙ｈ/Plugins/Podcast Voice Generator/")
+ return
+ end
+ local isPlaying = false
+ local currentPosition = 0
+ local duration = 0
+ local playbackSpeed = 1.0
+ local speedOptions = {"0.5x", "0.75x", "1.0x", "1.25x", "1.5x", "2.0x"}
+ local speedValues = {0.5, 0.75, 1.0, 1.25, 1.5, 2.0}
+ local currentSpeedIndex = 3
+ local updateHandler = Handler()
+ local updateRunnable = nil
+ local tutorialPlayer = nil
+ updateRunnable = Runnable({
+ run = function()
+ if tutorialPlayer and isPlaying then
+ pcall(function()
+ local currentPos = tutorialPlayer.getCurrentPosition()
+ playerSeekBar.setProgress(currentPos)
+ currentTimeText.text = formatTime(currentPos)
+ end)
+ updateHandler.postDelayed(updateRunnable, 500)
+ end
+ end
+ })
+
+ local function startUpdateTimer()
+ isPlaying = true
+ updateHandler.post(updateRunnable)
+ end
+
+ local function stopUpdateTimer()
+ isPlaying = false
+ updateHandler.removeCallbacks(updateRunnable)
+ end
+
+ local function stopTutorialAudioInternal()
+ stopUpdateTimer()
+ if tutorialPlayer then
+ pcall(function()
+ local playerReleased = false
+ pcall(function()
+ tutorialPlayer.isPlaying()
+ end, function(err)
+ playerReleased = true
+ end)
+ if not playerReleased then
+ if tutorialPlayer.isPlaying() then
+ tutorialPlayer.stop()
+ end
+ tutorialPlayer.release()
+ end
+ end)
+ tutorialPlayer = nil
+ end
+ end
+
+ local function formatTime(milliseconds)
+ local totalSeconds = math.floor(milliseconds / 1000)
+ local minutes = math.floor(totalSeconds / 60)
+ local seconds = totalSeconds % 60
+ return string.format("%02d:%02d", minutes, seconds)
+ end
+ local scrollView = ScrollView(activity)
+ local mainLayout = LinearLayout(activity)
+ mainLayout.setOrientation(LinearLayout.VERTICAL)
+ mainLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
+ mainLayout.setPadding(dip2px(10), dip2px(10), dip2px(10), dip2px(10))
+ local titleLabel = TextView(activity)
+ titleLabel.text = "How to Use - Tutorial Guide"
+ titleLabel.textSize = 16
+ titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
+ titleLabel.setTextColor(0xFF2196F3)
+ titleLabel.gravity = Gravity.CENTER
+ local titleParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ titleParams.bottomMargin = dip2px(8)
+ titleLabel.setLayoutParams(titleParams)
+ mainLayout.addView(titleLabel)
+ local fileLabel = TextView(activity)
+ fileLabel.text = "File: How to use.mp3"
+ fileLabel.textSize = 12
+ fileLabel.setTextColor(0xFF666666)
+ fileLabel.gravity = Gravity.CENTER
+ local fileParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ fileParams.bottomMargin = dip2px(5)
+ fileLabel.setLayoutParams(fileParams)
+ mainLayout.addView(fileLabel)
+ local pathLabel = TextView(activity)
+ pathLabel.text = "Path: " .. TUTORIAL_AUDIO_PATH
+ pathLabel.textSize = 8
+ pathLabel.setTextColor(0xFF888888)
+ pathLabel.gravity = Gravity.CENTER
+ pathLabel.setSingleLine(false)
+ pathLabel.setMaxLines(2)
+ pathLabel.setEllipsize(TextUtils.TruncateAt.START)
+ local pathParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ pathParams.bottomMargin = dip2px(10)
+ pathLabel.setLayoutParams(pathParams)
+ mainLayout.addView(pathLabel)
+ local progressLayout = LinearLayout(activity)
+ progressLayout.setOrientation(LinearLayout.HORIZONTAL)
+ progressLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local currentTimeText = TextView(activity)
+ currentTimeText.text = "00:00"
+ currentTimeText.textSize = 12
+ currentTimeText.setTypeface(Typeface.DEFAULT_BOLD)
+ currentTimeText.setTextColor(0xFF2196F3)
+ currentTimeText.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ progressLayout.addView(currentTimeText)
+ local playerSeekBar = SeekBar(activity)
+ local seekParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1)
+ seekParams.leftMargin = dip2px(5)
+ seekParams.rightMargin = dip2px(5)
+ playerSeekBar.setLayoutParams(seekParams)
+ progressLayout.addView(playerSeekBar)
+ local durationText = TextView(activity)
+ durationText.text = "00:00"
+ durationText.textSize = 12
+ durationText.setTypeface(Typeface.DEFAULT_BOLD)
+ durationText.setTextColor(0xFF666666)
+ durationText.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ progressLayout.addView(durationText)
+ mainLayout.addView(progressLayout)
+ local speedLayout = LinearLayout(activity)
+ speedLayout.setOrientation(LinearLayout.HORIZONTAL)
+ local speedParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ speedParams.topMargin = dip2px(15)
+ speedParams.bottomMargin = dip2px(15)
+ speedLayout.setLayoutParams(speedParams)
+ speedLayout.gravity = Gravity.CENTER
+ local speedLabel = TextView(activity)
+ speedLabel.text = "Playback Speed:"
+ speedLabel.textSize = 12
+ speedLabel.setTypeface(Typeface.DEFAULT_BOLD)
+ speedLabel.setTextColor(0xFF333333)
+ speedLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ speedLayout.addView(speedLabel)
+ local speedSpinner = Spinner(activity)
+ local spinnerParams = LinearLayout.LayoutParams(dip2px(100), LinearLayout.LayoutParams.WRAP_CONTENT)
+ spinnerParams.leftMargin = dip2px(10)
+ speedSpinner.setLayoutParams(spinnerParams)
+ speedLayout.addView(speedSpinner)
+ mainLayout.addView(speedLayout)
+ local instructionLabel = TextView(activity)
+ instructionLabel.text = "Listen to this tutorial to learn how to use the Podcast Voice Generator plugin effectively."
+ instructionLabel.textSize = 10
+ instructionLabel.setTextColor(0xFF555555)
+ instructionLabel.setGravity(Gravity.CENTER)
+ instructionLabel.setLineSpacing(dip2px(1), 1.1)
+ local instructionParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ instructionParams.bottomMargin = dip2px(15)
+ instructionLabel.setLayoutParams(instructionParams)
+ mainLayout.addView(instructionLabel)
+ local spacer = View(activity)
+ local spacerParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1)
+ spacer.setLayoutParams(spacerParams)
+ mainLayout.addView(spacer)
+ local controlLayout = LinearLayout(activity)
+ controlLayout.setOrientation(LinearLayout.HORIZONTAL)
+ controlLayout.gravity = Gravity.CENTER
+ local controlParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ controlParams.bottomMargin = dip2px(10)
+ controlLayout.setLayoutParams(controlParams)
+ local rewindButton = Button(activity)
+ rewindButton.text = "鈴� 10s"
+ rewindButton.setTextSize(12)
+ local rewindParams = LinearLayout.LayoutParams(dip2px(80), dip2px(35))
+ rewindParams.rightMargin = dip2px(10)
+ rewindButton.setLayoutParams(rewindParams)
+ controlLayout.addView(rewindButton)
+ local playPauseButton = Button(activity)
+ playPauseButton.text = "鈻� Play"
+ playPauseButton.setTextSize(14)
+ playPauseButton.setTypeface(Typeface.DEFAULT_BOLD)
+ local playParams = LinearLayout.LayoutParams(dip2px(90), dip2px(40))
+ playParams.leftMargin = dip2px(5)
+ playParams.rightMargin = dip2px(5)
+ playPauseButton.setLayoutParams(playParams)
+ controlLayout.addView(playPauseButton)
+ local forwardButton = Button(activity)
+ forwardButton.text = "10s 鈴�"
+ forwardButton.setTextSize(12)
+ local forwardParams = LinearLayout.LayoutParams(dip2px(80), dip2px(35))
+ forwardParams.leftMargin = dip2px(10)
+ forwardButton.setLayoutParams(forwardParams)
+ controlLayout.addView(forwardButton)
+ mainLayout.addView(controlLayout)
+ local closeButtonLayout = LinearLayout(activity)
+ closeButtonLayout.setOrientation(LinearLayout.HORIZONTAL)
+ closeButtonLayout.gravity = Gravity.CENTER
+ closeButtonLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local closeButton = Button(activity)
+ closeButton.text = "CLOSE TUTORIAL"
+ closeButton.setTextSize(12)
+ closeButton.setTypeface(Typeface.DEFAULT_BOLD)
+ closeButton.setTextColor(0xFFFFFFFF)
+ closeButton.setBackgroundColor(0xFFF44336)
+ local closeBtnParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(40))
+ closeButton.setLayoutParams(closeBtnParams)
+ closeButtonLayout.addView(closeButton)
+ mainLayout.addView(closeButtonLayout)
+ scrollView.addView(mainLayout)
+ local d = LuaDialog(activity)
+ .setTitle("Tutorial Audio Player")
+ .setView(scrollView)
+ .show()
+ local speedAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, speedOptions)
+ speedAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+ speedSpinner.setAdapter(speedAdapter)
+ speedSpinner.setSelection(currentSpeedIndex - 1)
+
+ local function initializePlayer()
+ local success, errorMsg = pcall(function()
+ tutorialPlayer = MediaPlayer()
+ tutorialPlayer.setDataSource(TUTORIAL_AUDIO_PATH)
+ tutorialPlayer.prepare()
+ duration = tutorialPlayer.getDuration()
+ durationText.text = formatTime(duration)
+ playerSeekBar.setMax(duration)
+ playerSeekBar.setProgress(0)
+ currentTimeText.text = "00:00"
+ if Build.VERSION.SDK_INT >= 23 then
+ pcall(function()
+ local params = tutorialPlayer.getPlaybackParams()
+ params = params.setSpeed(playbackSpeed)
+ tutorialPlayer.setPlaybackParams(params)
+ end)
+ end
+ tutorialPlayer.start()
+ isPlaying = true
+ playPauseButton.text = "鈴� Pause"
+ startUpdateTimer()
+ end)
+ if not success then
+ showErrorDialog("Failed to play tutorial:\n" .. tostring(errorMsg))
+ return false
+ end
+ return true
+ end
+ if not initializePlayer() then
+ d.dismiss()
+ return
+ end
+ speedSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener{
+ onItemSelected = function(parent, view, position, id)
+ playbackSpeed = speedValues[position + 1]
+ if tutorialPlayer then
+ if Build.VERSION.SDK_INT >= 23 then
+ pcall(function()
+ local wasPlaying = false
+ pcall(function()
+ wasPlaying = tutorialPlayer.isPlaying()
+ end)
+ if wasPlaying then
+ tutorialPlayer.pause()
+ end
+ local params = tutorialPlayer.getPlaybackParams()
+ params = params.setSpeed(playbackSpeed)
+ tutorialPlayer.setPlaybackParams(params)
+ if wasPlaying then
+ tutorialPlayer.start()
+ end
+ end)
+ end
+ end
+ end,
+ onNothingSelected = function(parent)
+ end
+ })
+ tutorialPlayer.setOnCompletionListener(MediaPlayer.OnCompletionListener{
+ onCompletion = function(mp)
+ runOnUi(function()
+ isPlaying = false
+ playPauseButton.text = "鈻� Play"
+ stopUpdateTimer()
+ playerSeekBar.setProgress(duration)
+ currentTimeText.text = formatTime(duration)
+ end)
+ end
+ })
+ playerSeekBar.setOnSeekBarChangeListener(SeekBar.OnSeekBarChangeListener{
+ onProgressChanged = function(seekBar, progress, fromUser)
+ if fromUser then
+ currentTimeText.text = formatTime(progress)
+ end
+ end,
+ onStartTrackingTouch = function(seekBar)
+ end,
+ onStopTrackingTouch = function(seekBar)
+ if tutorialPlayer then
+ pcall(function()
+ local wasPlaying = false
+ pcall(function()
+ wasPlaying = tutorialPlayer.isPlaying()
+ end)
+ if wasPlaying then
+ tutorialPlayer.pause()
+ end
+ tutorialPlayer.seekTo(seekBar.getProgress())
+ if wasPlaying then
+ tutorialPlayer.start()
+ end
+ end)
+ end
+ end
+ })
+ playPauseButton.onClick = function()
+ vibrate()
+ if not tutorialPlayer then return end
+ pcall(function()
+ if isPlaying then
+ tutorialPlayer.pause()
+ isPlaying = false
+ playPauseButton.text = "鈻� Play"
+ stopUpdateTimer()
+ else
+ tutorialPlayer.start()
+ isPlaying = true
+ playPauseButton.text = "鈴� Pause"
+ startUpdateTimer()
+ end
+ end)
+ end
+ rewindButton.onClick = function()
+ vibrate()
+ if not tutorialPlayer then return end
+ pcall(function()
+ local currentPos = tutorialPlayer.getCurrentPosition()
+ local newPos = math.max(0, currentPos - 10000)
+ tutorialPlayer.seekTo(newPos)
+ playerSeekBar.setProgress(newPos)
+ currentTimeText.text = formatTime(newPos)
+ end)
+ end
+ forwardButton.onClick = function()
+ vibrate()
+ if not tutorialPlayer then return end
+ pcall(function()
+ local currentPos = tutorialPlayer.getCurrentPosition()
+ local newPos = math.min(duration, currentPos + 10000)
+ tutorialPlayer.seekTo(newPos)
+ playerSeekBar.setProgress(newPos)
+ currentTimeText.text = formatTime(newPos)
+ end)
+ end
+ closeButton.onClick = function()
+ vibrate()
+ stopTutorialAudioInternal()
+ d.dismiss()
+ end
+ d.setOnDismissListener(DialogInterface.OnDismissListener{
+ onDismiss = function()
+ stopTutorialAudioInternal()
+ end
+ })
+end
+
+function showAboutDialog()
+ local scrollView = ScrollView(activity)
+ local mainLayout = LinearLayout(activity)
+ mainLayout.setOrientation(LinearLayout.VERTICAL)
+ mainLayout.setPadding(dip2px(8), dip2px(8), dip2px(8), dip2px(8))
+ local titleLabel = TextView(activity)
+ titleLabel.text = "Podcast Voice Generator"
+ titleLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ titleLabel.textSize = 14
+ titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
+ titleLabel.setGravity(Gravity.CENTER)
+ mainLayout.addView(titleLabel)
+ local providerLabel = TextView(activity)
+ providerLabel.text = "Using " .. tostring(SELECTED_API_PROVIDER)
+ providerLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ providerLabel.setGravity(Gravity.CENTER)
+ providerLabel.textSize = 10
+ mainLayout.addView(providerLabel)
+ local versionLabel = TextView(activity)
+ versionLabel.text = "Version " .. CURRENT_VERSION
+ versionLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ versionLabel.setGravity(Gravity.CENTER)
+ versionLabel.textSize = 10
+ mainLayout.addView(versionLabel)
+ local divider1 = View(activity)
+ divider1.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(1)))
+ divider1.setBackgroundColor(0xFFCCCCCC)
+ local divider1Params = divider1.getLayoutParams()
+ if divider1Params then
+ divider1Params.topMargin = dip2px(8)
+ divider1Params.bottomMargin = dip2px(8)
+ end
+ mainLayout.addView(divider1)
+ local connectLabel = TextView(activity)
+ connectLabel.text = "Connect with Developer:"
+ connectLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ connectLabel.textSize = 12
+ mainLayout.addView(connectLabel)
+ local whatsappButton = Button(activity)
+ whatsappButton.text = "Contact Developer (WhatsApp)"
+ whatsappButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local whatsappButtonParams = whatsappButton.getLayoutParams()
+ if whatsappButtonParams then
+ whatsappButtonParams.topMargin = dip2px(5)
+ end
+ mainLayout.addView(whatsappButton)
+ local telegramButton = Button(activity)
+ telegramButton.text = "Join Telegram Channel"
+ telegramButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local telegramButtonParams = telegramButton.getLayoutParams()
+ if telegramButtonParams then
+ telegramButtonParams.topMargin = dip2px(5)
+ end
+ mainLayout.addView(telegramButton)
+ local youtubeButton = Button(activity)
+ youtubeButton.text = "Watch tutorial playlist by Nafees Khan"
+ youtubeButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local youtubeButtonParams = youtubeButton.getLayoutParams()
+ if youtubeButtonParams then
+ youtubeButtonParams.topMargin = dip2px(5)
+ end
+ mainLayout.addView(youtubeButton)
+ local feedbackButton = Button(activity)
+ feedbackButton.text = "Feedback to Developer"
+ feedbackButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local feedbackButtonParams = feedbackButton.getLayoutParams()
+ if feedbackButtonParams then
+ feedbackButtonParams.topMargin = dip2px(5)
+ end
+ mainLayout.addView(feedbackButton)
+ local updateButton = Button(activity)
+ updateButton.text = "Check for Updates"
+ updateButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local updateButtonParams = updateButton.getLayoutParams()
+ if updateButtonParams then
+ updateButtonParams.topMargin = dip2px(5)
+ end
+ mainLayout.addView(updateButton)
+ local licenseButton = Button(activity)
+ licenseButton.text = "Licenses and Agreements"
+ licenseButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local licenseButtonParams = licenseButton.getLayoutParams()
+ if licenseButtonParams then
+ licenseButtonParams.topMargin = dip2px(5)
+ end
+ mainLayout.addView(licenseButton)
+ local divider2 = View(activity)
+ divider2.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(1)))
+ divider2.setBackgroundColor(0xFFCCCCCC)
+ local divider2Params = divider2.getLayoutParams()
+ if divider2Params then
+ divider2Params.topMargin = dip2px(8)
+ divider2Params.bottomMargin = dip2px(8)
+ end
+ mainLayout.addView(divider2)
+ local configLabel = TextView(activity)
+ configLabel.text = "Current configuration:"
+ configLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ configLabel.textSize = 10
+ mainLayout.addView(configLabel)
+ local providerInfo = TextView(activity)
+ providerInfo.text = "Provider: " .. tostring(SELECTED_API_PROVIDER)
+ providerInfo.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ providerInfo.textSize = 10
+ mainLayout.addView(providerInfo)
+ local voicesInfo = TextView(activity)
+ voicesInfo.text = "Available Voices: " .. (SELECTED_API_PROVIDER == "OpenAI Official (GPT-4o mini TTS)" and "6" or "31")
+ voicesInfo.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ voicesInfo.textSize = 10
+ mainLayout.addView(voicesInfo)
+ if API_KEY and #API_KEY > 5 then
+ local apiInfo = TextView(activity)
+ apiInfo.text = "API Key: Configured"
+ apiInfo.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ apiInfo.textSize = 10
+ mainLayout.addView(apiInfo)
+ else
+ local apiInfo = TextView(activity)
+ apiInfo.text = "API Key: Not configured"
+ apiInfo.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ apiInfo.textSize = 10
+ apiInfo.setTextColor(0xFFFF0000)
+ mainLayout.addView(apiInfo)
+ end
+ local configButton = Button(activity)
+ configButton.text = "Configure API Settings"
+ configButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local configButtonParams = configButton.getLayoutParams()
+ if configButtonParams then
+ configButtonParams.topMargin = dip2px(8)
+ end
+ mainLayout.addView(configButton)
+ local tutorialButton = Button(activity)
+ tutorialButton.text = "How to Use Tutorial"
+ tutorialButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local tutorialButtonParams = tutorialButton.getLayoutParams()
+ if tutorialButtonParams then
+ tutorialButtonParams.topMargin = dip2px(5)
+ end
+ mainLayout.addView(tutorialButton)
+ scrollView.addView(mainLayout)
+ local aboutDialog = LuaDialog(activity)
+ aboutDialog.setTitle("About & Configuration")
+ aboutDialog.setView(scrollView)
+ aboutDialog.setPositiveButton("OK", function()
+ aboutDialog.dismiss()
+ end)
+ configButton.onClick = function()
+ aboutDialog.dismiss()
+ vibrate()
+ showGeminiConfigDialog()
+ end
+ tutorialButton.onClick = function()
+ aboutDialog.dismiss()
+ vibrate()
+ showAudioPlayerDialog()
+ end
+ updateButton.onClick = function()
+ aboutDialog.dismiss()
+ vibrate()
+ checkForUpdate(true, function(updateAvailable, message)
+ if not updateAvailable then
+ showInfoDialog("Update Check", "You have the latest version!")
+ end
+ end)
+ end
+ licenseButton.onClick = function()
+ aboutDialog.dismiss()
+ vibrate()
+ showLicenseDialog()
+ end
+ feedbackButton.onClick = function()
+ aboutDialog.dismiss()
+ vibrate()
+ showFeedbackDialog()
+ end
+ whatsappButton.onClick = function()
+ aboutDialog.dismiss()
+ vibrate()
+ local whatsappMessage = "Hello! I'm using your Podcast Voice Generator extension. It's amazing!"
+ local finalUrl = "https://wa.me/message/W4BX62NMZLS3L1?text=" .. Uri.encode(whatsappMessage)
+ local intent = Intent(Intent.ACTION_VIEW, Uri.parse(finalUrl))
+ intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+ activity.startActivity(intent)
+ end
+ telegramButton.onClick = function()
+ aboutDialog.dismiss()
+ vibrate()
+ local intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/TechForVI"))
+ intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+ activity.startActivity(intent)
+ end
+ youtubeButton.onClick = function()
+ aboutDialog.dismiss()
+ vibrate()
+ local intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/playlist?list=PLwHsDrP1D5-nJHrr7Q9iyc3g_j3imS2Io"))
+ intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+ activity.startActivity(intent)
+ end
+ aboutDialog.show()
+end
+
+function enhancedDownloadButtonClick()
+ vibrate()
+ if not finalPodcastPath and not lastGeneratedAudioPath then
+ resultText.text = "Error: No audio has been created to save."
+ return
+ end
+ local audioPath = finalPodcastPath or lastGeneratedAudioPath
+ local selectedFormat = formatSpinner.getSelectedItem()
+ resultText.text = "Saving audio file..."
+ downloadButton.setEnabled(false)
+ formatSpinner.setEnabled(false)
+ Thread(Runnable{
+ run = function()
+ local savedPath, err = saveAudioFile(audioPath, selectedFormat)
+ runOnUi(function()
+ downloadButton.setEnabled(true)
+ formatSpinner.setEnabled(true)
+ if savedPath then
+ local actualFormat = savedPath:match("%.([a-zA-Z0-9]+)$")
+ resultText.text = string.format("Successfully saved .%s file at: %s", actualFormat, savedPath)
+ showInfoDialog("Success", "Audio saved successfully!\nLocation: " .. savedPath)
+ sendFeedbackToServer("Audio saved: " .. actualFormat, "auto")
+ else
+ resultText.text = "Error saving file: " .. tostring(err)
+ showErrorDialog("Error saving file: " .. tostring(err))
+ end
+ end)
+ end
+ }).start()
+end
+
+function dip2px(dp)
+ return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, activity.getResources().getDisplayMetrics())
+end
+
+function reopenDialogWithCurrentState()
+ isDialogHidden = false
+ if dlg and not dlg.isShowing() then
+ dlg.show()
+ end
+ if lastGeneratedAudioPath then
+ finalPodcastPath = lastGeneratedAudioPath
+ if playButton and downloadButton and formatSpinner then
+ playButton.setVisibility(View.VISIBLE)
+ downloadButton.setVisibility(View.VISIBLE)
+ formatSpinner.setVisibility(View.VISIBLE)
+ playButton.text = "Listen"
+ playButton.setEnabled(true)
+ end
+ if lastGeneratedAudioType == "podcast" then
+ if resultText then
+ resultText.text = "Podcast is ready! You can listen or save."
+ end
+ stopAudio()
+ audioPlayer = MediaPlayer()
+ activePlayers["main"] = audioPlayer
+ pcall(function()
+ audioPlayer.setDataSource(lastGeneratedAudioPath)
+ audioPlayer.prepare()
+ audioPlayer.setOnCompletionListener(MediaPlayer.OnCompletionListener{
+ onCompletion = function(mp)
+ runOnUi(function()
+ if playButton then
+ playButton.text = "Listen to Podcast"
+ playButton.setEnabled(true)
+ end
+ end)
+ end
+ })
+ end)
+ else
+ if resultText then
+ resultText.text = "Audio is ready! You can listen or save."
+ end
+ stopTestAudio()
+ testAudioPlayer = MediaPlayer()
+ activePlayers["test"] = testAudioPlayer
+ pcall(function()
+ testAudioPlayer.setDataSource(lastGeneratedAudioPath)
+ testAudioPlayer.prepare()
+ testAudioPlayer.setOnCompletionListener(MediaPlayer.OnCompletionListener{
+ onCompletion = function(mp)
+ runOnUi(function()
+ if playButton then
+ playButton.text = "Listen"
+ playButton.setEnabled(true)
+ end
+ end)
+ end
+ })
+ end)
+ end
+ end
+end
+
+function updateVoiceSelector()
+ if not voiceSelectorSpinner then return end
+ local visibleVoices = {}
+ if currentMode == 0 then
+ voiceSelectorLayout.setVisibility(View.GONE)
+ return
+ elseif currentMode == 1 then
+ voiceSelectorLayout.setVisibility(View.VISIBLE)
+ for i = 1, 2 do
+ table.insert(visibleVoices, configNames[i])
+ end
+ elseif currentMode == 2 then
+ voiceSelectorLayout.setVisibility(View.VISIBLE)
+ for i = 1, 4 do
+ table.insert(visibleVoices, configNames[i])
+ end
+ elseif currentMode == 3 then
+ voiceSelectorLayout.setVisibility(View.VISIBLE)
+ for i = 1, 6 do
+ table.insert(visibleVoices, configNames[i])
+ end
+ end
+ local voiceAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, visibleVoices)
+ voiceAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+ voiceSelectorSpinner.setAdapter(voiceAdapter)
+end
+
+function handlePlayButtonClick()
+ vibrate()
+ local audioPath = finalPodcastPath or lastGeneratedAudioPath
+ if not audioPath then
+ resultText.text = "Error: No audio has been created."
+ return
+ end
+
+ local function updatePlayButtonState(btnText)
+ runOnUi(function()
+ playButton.text = btnText
+ playButton.setEnabled(true)
+ end)
+ end
+ if audioPlayer and audioPath == finalPodcastPath then
+ if audioPlayer.isPlaying() then
+ audioPlayer.pause()
+ updatePlayButtonState("Listen to Podcast")
+ else
+ audioPlayer.start()
+ playButton.text = "Stop"
+ audioPlayer.setOnCompletionListener(MediaPlayer.OnCompletionListener{
+ onCompletion = function(mp) updatePlayButtonState("Listen to Podcast") end
+ })
+ end
+ elseif testAudioPlayer and audioPath ~= finalPodcastPath then
+ if testAudioPlayer.isPlaying() then
+ testAudioPlayer.pause()
+ updatePlayButtonState("Listen")
+ else
+ testAudioPlayer.start()
+ playButton.text = "Stop"
+ testAudioPlayer.setOnCompletionListener(MediaPlayer.OnCompletionListener{
+ onCompletion = function(mp) updatePlayButtonState("Listen") end
+ })
+ end
+ else
+ if audioPath == finalPodcastPath then
+ stopAudio()
+ audioPlayer = MediaPlayer()
+ audioPlayer.setDataSource(audioPath)
+ audioPlayer.prepare()
+ audioPlayer.start()
+ playButton.text = "Stop"
+ audioPlayer.setOnCompletionListener(MediaPlayer.OnCompletionListener{
+ onCompletion = function(mp) updatePlayButtonState("Listen to Podcast") end
+ })
+ else
+ stopTestAudio()
+ testAudioPlayer = MediaPlayer()
+ testAudioPlayer.setDataSource(audioPath)
+ testAudioPlayer.prepare()
+ testAudioPlayer.start()
+ playButton.text = "Stop"
+ testAudioPlayer.setOnCompletionListener(MediaPlayer.OnCompletionListener{
+ onCompletion = function(mp) updatePlayButtonState("Listen") end
+ })
+ end
+ end
+end
+layout = {
+ ScrollView,
+ layout_width = "fill",
+ layout_height = "fill",
+ {
+ LinearLayout,
+ orientation = "vertical",
+ layout_width = "fill",
+ layout_height = "wrap_content",
+ padding = "10dp",
+ {
+ LinearLayout,
+ orientation = "horizontal",
+ layout_width = "fill",
+ layout_height = "wrap_content",
+ layout_marginBottom = "8dp",
+ { TextView, text = "Mode:", textSize = "12sp", gravity = "center_vertical", layout_width = "wrap_content", layout_height = "wrap_content", layout_marginRight = "8dp" },
+ { Spinner, id = "modeSpinner", layout_width = "fill", layout_weight = 1, layout_height = "wrap_content" }
+ },
+ { View, layout_height="1dp", backgroundColor=0xFF888888, layout_width="fill", layout_marginTop="5dp", layout_marginBottom="10dp" },
+ {
+ LinearLayout,
+ orientation = "horizontal",
+ layout_width = "fill",
+ layout_height = "wrap_content",
+ { Button, id = "btnConfigVoice1", text = "Configure Voice", layout_width = "0dp", layout_weight = 1, layout_height = "wrap_content", textSize = "10sp", layout_marginRight = "4dp", visibility = View.VISIBLE },
+ { Button, id = "btnConfigVoice2", text = "Configure Voice 2", layout_width = "0dp", layout_weight = 1, layout_height = "wrap_content", textSize = "10sp", layout_marginLeft = "4dp", visibility = View.GONE },
+ },
+ { View, layout_height="1dp", backgroundColor=0xFF888888, layout_width="fill", layout_marginTop="10dp", layout_marginBottom="10dp" },
+ { TextView, id = "chatLabel", text = "Enter text:", textSize = "12sp" },
+ {
+ EditText,
+ id = "chatInput",
+ hint = "Type text for single voice...",
+ layout_width = "fill",
+ layout_height = "wrap_content",
+ lines = 2,
+ },
+ { TextView, id = "charCounter", text = "Characters: 0/50000 | Tokens: 0/12500", textSize = "8sp", layout_width = "fill", gravity = "right" },
+ {
+ LinearLayout,
+ id = "voiceSelectorLayout",
+ orientation = "horizontal",
+ layout_width = "fill",
+ layout_height = "wrap_content",
+ layout_marginTop = "4dp",
+ visibility = View.GONE,
+ { TextView, text = "Select Voice:", textSize = "10sp", gravity = "center_vertical", layout_width = "wrap_content", layout_marginRight = "8dp" },
+ { Spinner, id = "voiceSelectorSpinner", layout_width = "0dp", layout_weight = 1 },
+ { Button, id = "btnAddToScript", text = "Add to Script", layout_width = "wrap_content", layout_marginLeft = "8dp" }
+ },
+ {
+ LinearLayout,
+ orientation = "horizontal",
+ layout_width = "fill",
+ layout_height = "wrap_content",
+ layout_marginTop = "4dp",
+ { TextView, id = "dialogueEmotionLabel", text = "Apply Default Emotion to input:", textSize = "10sp", gravity = "center_vertical", layout_width = "wrap_content", layout_height = "wrap_content", layout_marginRight = "4dp", visibility = View.GONE },
+ { Button, id = "btnDialogueEmotionApply", text = "Apply Tag", layout_width = "wrap_content", layout_height = "wrap_content", textSize = "10sp", layout_marginLeft = "4dp", visibility = View.GONE }
+ },
+ { TextView, id="podcastEmotionNote", text="*Default intonation will be used if no emotion tag.", textSize="8sp", textColor=0xFF555555, layout_marginTop="4dp", visibility=View.GONE },
+ {
+ LinearLayout,
+ id = "addButtonsLayout",
+ orientation = "horizontal",
+ layout_width = "fill",
+ layout_height = "wrap_content",
+ layout_marginTop = "4dp",
+ { Button, id = "btnTestSpeak", text = "Test Listen", layout_width = "fill", layout_height = "wrap_content", textSize = "10sp" }
+ },
+ {
+ LinearLayout,
+ id = "textEmotionSpinnerLayout",
+ orientation = "horizontal",
+ layout_width = "fill",
+ layout_height = "wrap_content",
+ layout_marginTop = "8dp",
+ visibility = View.GONE,
+ { TextView, text = "Text Emotion:", textSize = "12sp", gravity = "center_vertical", layout_width = "wrap_content", layout_height = "wrap_content", layout_marginRight = "8dp" },
+ { Spinner, id = "textEmotionSpinner", layout_width = "fill", layout_weight = 1, layout_height = "wrap_content" }
+ },
+ { TextView, id = "scriptLabel", text = "Final Script:", textSize = "12sp", layout_marginTop = "8dp", visibility = View.GONE },
+ {
+ EditText,
+ id = "scriptInput",
+ hint = "Script will appear here...",
+ layout_width = "fill",
+ layout_height = "80dp",
+ padding = "8dp",
+ backgroundColor = 0xFFF0F0F0,
+ textColor = 0xFF000000,
+ lines = 8,
+ inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE,
+ gravity = "top",
+ layout_marginBottom = "8dp",
+ visibility = View.GONE
+ },
+ {
+ Button,
+ id = "generateButton",
+ text = "Generate Audio",
+ layout_width = "fill",
+ layout_height = "wrap_content",
+ layout_marginTop = "4dp"
+ },
+ {
+ ProgressBar,
+ id = "podcastProgressBar",
+ layout_width = "fill",
+ layout_height = "wrap_content",
+ style = "?android:attr/progressBarStyleHorizontal",
+ layout_marginTop = "4dp",
+ visibility = View.GONE,
+ max = 100
+ },
+ {
+ TextView,
+ id = "resultText",
+ text = "Status...",
+ layout_width = "fill",
+ layout_height = "wrap_content",
+ padding = "4dp",
+ textIsSelectable = true,
+ },
+ {
+ LinearLayout,
+ orientation = "horizontal",
+ layout_width = "fill",
+ layout_height = "wrap_content",
+ layout_marginTop = "4dp",
+ {
+ Button,
+ id = "playButton",
+ text = "Listen",
+ layout_width = "0dp",
+ layout_weight = 1,
+ layout_height = "wrap_content",
+ visibility = View.GONE,
+ },
+ {
+ Spinner,
+ id = "formatSpinner",
+ layout_width = "0dp",
+ layout_weight = 1,
+ layout_height = "wrap_content",
+ layout_gravity = "center_vertical",
+ layout_marginLeft = "4dp",
+ visibility = View.GONE
+ },
+ {
+ Button,
+ id = "downloadButton",
+ text = "Save",
+ layout_width = "0dp",
+ layout_weight = 1,
+ layout_height = "wrap_content",
+ visibility = View.GONE,
+ }
+ },
+ {
+ Button,
+ id = "manageAudioButton",
+ text = "Manage Audio Files",
+ layout_width = "fill",
+ layout_height = "wrap_content",
+ layout_marginTop = "8dp"
+ },
+ {
+ LinearLayout,
+ orientation = "horizontal",
+ layout_width = "fill",
+ layout_height = "wrap_content",
+ layout_marginTop = "8dp",
+ {
+ Button,
+ id = "btnHideDialog",
+ text = "Hide Dialog",
+ layout_width = "0dp",
+ layout_weight = 1,
+ layout_height = "wrap_content",
+ layout_marginRight = "4dp",
+ onClick = function()
+ vibrate()
+ isDialogHidden = true
+ dlg.hide()
+ cleanupAllResources()
+ if generateButton.text == "Processing" or generateButton.text == "Creating..." then
+ showInfoDialog("Information", "Audio generation is running in background. Dialog will reopen when completed.")
+ end
+ end
+ },
+ {
+ Button,
+ id = "btnAbout",
+ text = "Configuration & About",
+ layout_width = "0dp",
+ layout_weight = 1,
+ layout_height = "wrap_content",
+ layout_marginLeft = "4dp",
+ onClick = function()
+ vibrate()
+ showAboutDialog()
+ end
+ }
+ }
+ }
+}
+dlg = LuaDialog(this)
+dlg.setTitle("Podcast Voice Generator")
+dlg.setView(loadlayout(layout))
+dlg.setNegativeButton("Close", function()
+ vibrate()
+ cleanupAllResources()
+ releaseWakeLock()
+ clearBackgroundServiceState()
+ isDialogHidden = false
+ dlg.dismiss()
+end)
+local modeAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, modes)
+modeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+modeSpinner.setAdapter(modeAdapter)
+modeSpinner.setSelection(0)
+local textEmotionAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, textEmotionModes)
+textEmotionAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+textEmotionSpinner.setAdapter(textEmotionAdapter)
+textEmotionSpinner.setSelection(0)
+textEmotionSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener{
+ onItemSelected = function(parent, view, position, id)
+ textEmotionMode = textEmotionModes[position + 1]
+ saveConfig()
+ end
+})
+local formatAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, formatOptions)
+formatAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+formatSpinner.setAdapter(formatAdapter)
+formatSpinner.setSelection(0)
+modeSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener{
+ onItemSelected = function(parent, view, position, id)
+ runOnUi(function()
+ updateUIMode(position)
+ saveConfig()
+ end)
+ end
+})
+chatInput.addTextChangedListener(TextWatcher{
+ onTextChanged = function(s, start, before, count)
+ updateCharCounter()
+ end
+})
+btnAddToScript.onClick = function()
+ vibrate()
+ if not voiceSelectorSpinner then return end
+ local selectedVoice = voiceSelectorSpinner.getSelectedItem()
+ local message = chatInput.getText().toString()
+ if selectedVoice and #message > 0 then
+ if scriptInput then
+ scriptInput.append(selectedVoice .. ": " .. message .. "\n")
+ end
+ chatInput.setText("")
+ end
+end
+btnConfigVoice1.onClick = function()
+ vibrate()
+ if currentMode == 0 then showVoiceConfigDialog(1) else showAllVoicesConfigDialog() end
+end
+btnConfigVoice2.onClick = function()
+ vibrate()
+ if currentMode == 1 then showVoiceConfigDialog(2) end
+end
+btnDialogueEmotionApply.onClick = function()
+ vibrate()
+ if currentMode < 1 then return end
+ local currentText = chatInput.text
+ if #currentText == 0 then return end
+ local nameToApply = configNames[1]
+ local selectedEmotion = configEmotions[1]
+ local emotionTag = ""
+ if selectedEmotion ~= "Default" then
+ local emotionName = selectedEmotion:match("^(.-)%s*%(") or selectedEmotion
+ if selectedEmotion == "Custom" then emotionName = "Custom" end
+ emotionTag = "[" .. emotionName .. "] "
+ end
+ local cleanedText = currentText:gsub("^%s*%[.-%]%s*", ""):gsub("^%s*" .. nameToApply .. ":%s*", "")
+ chatInput.text = nameToApply .. ": " .. emotionTag .. cleanedText
+end
+btnTestSpeak.onClick = function()
+ vibrate()
+ if testAudioPlayer and testAudioPlayer.isPlaying() then
+ stopTestAudio()
+ btnTestSpeak.text = "Test Listen"
+ return
+ end
+ local text = chatInput.text
+ if #text == 0 then return end
+ local selectedVoice = configVoices[1]
+ local currentEmotion = selectedEmotionSingle
+ if currentMode >= 1 then
+ local selectedIndex = voiceSelectorSpinner.getSelectedItemPosition()
+ if selectedIndex >= 0 then
+ selectedVoice = configVoices[selectedIndex + 1]
+ currentEmotion = configEmotions[selectedIndex + 1]
+ end
+ end
+ stopAudio()
+ sendFeedbackToServer("Test speak: " .. text:sub(1, 50), "auto")
+ btnTestSpeak.text = "Creating..."
+ Thread(Runnable{ run = function() testSpeak(text, selectedVoice, currentEmotion, configSpeeds[1], configPitches[1], false, false) end }).start()
+end
+generateButton.onClick = function()
+ vibrate()
+ local mode = modeSpinner.getSelectedItemPosition()
+ stopAudio()
+ stopTestAudio()
+
+local function resetGenerateUI()
+ runOnUi(function()
+ generateButton.setEnabled(true)
+ generateButton.text = (mode == 0) and "Generate Audio" or "Generate Podcast"
+ if podcastProgressBar then podcastProgressBar.setVisibility(View.GONE) end
+ end)
+ end
+ if playButton then playButton.setVisibility(View.GONE) end
+ if downloadButton then downloadButton.setVisibility(View.GONE) end
+ if podcastProgressBar then
+ podcastProgressBar.setVisibility(View.GONE)
+ podcastProgressBar.setProgress(0)
+ end
+ generateButton.setEnabled(false)
+ isAudioAutoPlayEnabled = false
+ if mode == 0 then
+ local text = chatInput.text
+ if #text == 0 then
+ resetGenerateUI()
+ showErrorDialog("Please enter text.")
+ return
+ end
+ sendFeedbackToServer("Single voice generation: " .. text:sub(1, 100), "auto")
+ generateButton.text = "Creating..."
+ Thread(Runnable{
+ run = function()
+ testSpeak(text, configVoices[1], selectedEmotionSingle, configSpeeds[1], configPitches[1], true, false)
+ end
+ }).start()
+ else
+ processMultiVoicePodcast()
+ end
+end
+playButton.onClick = handlePlayButtonClick
+manageAudioButton.onClick = function() vibrate(); showAudioManagementDialog() end
+downloadButton.onClick = enhancedDownloadButtonClick
+loadConfig()
+loadUsername()
+loadGenerationState()
+if not isUsernameSet() then
+ setupUsernameSystem()
+else
+ if currentUsername ~= "" then
+ dlg.setTitle("Welcome " .. currentUsername .. " to Podcast Voice Generator")
+ end
+end
+if lastGeneratedAudioPath and File(lastGeneratedAudioPath).exists() then
+ runOnUi(function()
+ resultText.text = "Last generated audio is ready!"
+ playButton.setVisibility(View.VISIBLE)
+ downloadButton.setVisibility(View.VISIBLE)
+ formatSpinner.setVisibility(View.VISIBLE)
+ playButton.text = "Listen"
+ playButton.setEnabled(true)
+ end)
+end
+function updateUIModeOnLoad()
+ updateUIMode(currentMode)
+ updateVoiceSelector()
+end
+updateUIModeOnLoad()
+performAutoChecks()
+ 
+if not resumeGenerationIfNeeded() then
+ if not isDialogHidden then
+ dlg.show()
+ end
+end
