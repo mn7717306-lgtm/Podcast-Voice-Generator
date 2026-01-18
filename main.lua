@@ -20,18 +20,26 @@ import "java.text.DateFormat"
 import "android.graphics.Typeface"
 import "android.graphics.Color"
 if Build.VERSION.SDK_INT >= 23 then
- import "android.media.PlaybackParams"
+import "android.media.PlaybackParams"
 end
 activity = this
-local CURRENT_VERSION = "1.1"
-local GITHUB_USER = "mn7717306-lgtm"
-local REPO_NAME = "Podcast-Voice-Generator"
-local GITHUB_RAW_URL = "https://raw.githubusercontent.com/"..GITHUB_USER.."/"..REPO_NAME.."/main/"
+local UPDATE_SYSTEM_ENABLED = true
+local CURRENT_VERSION = "1.0.0"
+local GITHUB_REPO_URL = "https://github.com/mn7717306-lgtm/Podcast-Voice-Generator"
+local GITHUB_RAW_URL = "https://raw.githubusercontent.com/mn7717306-lgtm/Podcast-Voice-Generator/main/"
 local VERSION_URL = GITHUB_RAW_URL .. "version.txt"
-local UPDATE_DETAILS_URL = GITHUB_RAW_URL .. "update.txt"
-local SCRIPT_URL = GITHUB_RAW_URL .. "Pmain.lua"
-local PLUGIN_PATH = "/sdcard/解说/Plugins/Podcast Voice Generator/main.lua"
+local UPDATE_URL = GITHUB_RAW_URL .. "update.txt"
+local MESSAGE_URL = GITHUB_RAW_URL .. "Message.txt"
+local LINK_URL = GITHUB_RAW_URL .. "Link.txt"
+local LICENSE_URL = GITHUB_RAW_URL .. "LICENSE"
+local PLUGIN_PATH = "/storage/emulated/0/解说/Plugins/Podcast Voice Generator/main.lua"
+local PLUGIN_DIR = "/storage/emulated/0/解说/Plugins/Podcast Voice Generator/"
+local UPDATE_PREFS = "UPDATE_CONFIG"
+local MESSAGE_PREFS = "MESSAGE_CONFIG"
+local LINK_PREFS = "LINK_CONFIG"
 local updateInProgress = false
+local lastUpdateCheckTime = 0
+local UPDATE_CHECK_INTERVAL = 24 * 60 * 60 * 1000 -- 24 hours
 local mainHandler = Handler(Looper.getMainLooper())
 local GEMINI_PREFS = "GEMINI_CONFIG"
 local PREFS_NAME = "VOICE_CONFIG"
@@ -204,6 +212,14 @@ local emotionMap = {
  ["Adventure"] = "[READ WITH ADVENTURE STYLE]",
  ["Custom"] = "[CUSTOM EMOTION - USE PROMPT PROVIDED]"
 }
+local emotionExampleMap = {
+ ["Default"] = "This is a sample text for testing voice generation.",
+ ["Happy"] = "I'm so excited to share this wonderful news with everyone today!",
+ ["Rap"] = "Check the mic, one two, this is how we do, dropping beats that are fresh and new.",
+ ["Pop"] = "This melody will make your heart sing, it's the sound of everything.",
+ ["Rock"] = "Turn up the volume, feel the beat, this rock and roll can't be beat!",
+ ["Custom"] = "Enter your example sentence here..."
+}
 local formatOptions = {"wav", "mp3", "wma", "ogg", "aac"}
 local USER_AUDIO_DIR = "/storage/emulated/0/Audio/Podcast Generator"
 local TUTORIAL_AUDIO_PATH = "/storage/emulated/0/Download/How to use.mp3"
@@ -217,127 +233,484 @@ local modes = {
  "Six Voices Podcast"
 }
 local isGenerationActive = false
+local currentGenerationMode = nil
+local currentGenerationText = nil
+local currentGenerationProgress = 0
+local currentGenerationTotal = 0
+local currentGenerationLines = {}
+local currentGenerationChunks = {}
+local currentGenerationChunkIndex = 0
+local currentGenerationTotalChunks = 0
 local backgroundWakeLock = nil
 local isBackgroundServiceActive = false
 local backgroundServiceIntent = nil
-
-function feedback(msg)
- if service then service.speak(msg) end
- local vibrator = activity.getSystemService(Context.VIBRATOR_SERVICE)
- if vibrator then vibrator.vibrate(50) end
+function getUpdatePrefs()
+ return activity.getSharedPreferences(UPDATE_PREFS, Context.MODE_PRIVATE)
 end
-
-function checkForUpdate(manual)
- if updateInProgress then return end
- if manual then feedback("Checking for updates from repository...") end
- 
- Http.get(VERSION_URL, function(code, onlineVersion)
- if code == 200 and onlineVersion then
- onlineVersion = tostring(onlineVersion):match("^%s*(.-)%s*$")
- if onlineVersion and onlineVersion ~= CURRENT_VERSION then
- Http.get(UPDATE_DETAILS_URL, function(code2, details)
- local changeLog = (code2 == 200 and details) and details or "Minor bug fixes and stability improvements."
- showUpdateDialog(onlineVersion, changeLog)
- end)
- elseif manual then
- feedback("You are using the latest version " .. CURRENT_VERSION)
+function getMessagePrefs()
+ return activity.getSharedPreferences(MESSAGE_PREFS, Context.MODE_PRIVATE)
+end
+function getLinkPrefs()
+ return activity.getSharedPreferences(LINK_PREFS, Context.MODE_PRIVATE)
+end
+function saveLastUpdateCheckTime()
+ local prefs = getUpdatePrefs()
+ local editor = prefs.edit()
+ editor.putLong("lastUpdateCheck", System.currentTimeMillis())
+ editor.apply()
+end
+function getLastUpdateCheckTime()
+ local prefs = getUpdatePrefs()
+ return prefs.getLong("lastUpdateCheck", 0)
+end
+function saveLastVideoLink(link)
+ local prefs = getLinkPrefs()
+ local editor = prefs.edit()
+ editor.putString("lastVideoLink", link)
+ editor.apply()
+end
+function getLastVideoLink()
+ local prefs = getLinkPrefs()
+ return prefs.getString("lastVideoLink", "")
+end
+function saveMessageShownState(shown)
+ local prefs = getMessagePrefs()
+ local editor = prefs.edit()
+ editor.putBoolean("messageShown", shown)
+ editor.apply()
+end
+function getMessageShownState()
+ local prefs = getMessagePrefs()
+ return prefs.getBoolean("messageShown", false)
+end
+function saveMessageDontShowAgain(dontShow)
+ local prefs = getMessagePrefs()
+ local editor = prefs.edit()
+ editor.putBoolean("dontShowAgain", dontShow)
+ editor.apply()
+end
+function getMessageDontShowAgain()
+ local prefs = getMessagePrefs()
+ return prefs.getBoolean("dontShowAgain", false)
+end
+function saveVideoLinkShownState(shown)
+ local prefs = getLinkPrefs()
+ local editor = prefs.edit()
+ editor.putBoolean("videoLinkShown", shown)
+ editor.apply()
+end
+function getVideoLinkShownState()
+ local prefs = getLinkPrefs()
+ return prefs.getBoolean("videoLinkShown", false)
+end
+function downloadFile(url, callback)
+ if not UPDATE_SYSTEM_ENABLED then
+ callback(nil, "Update system disabled")
+ return
  end
- elseif manual then
- feedback("Failed to check for updates. Please check your internet.")
+ 
+ Http.get(url, function(code, content)
+ if code == 200 then
+ callback(content, nil)
+ else
+ callback(nil, "HTTP Error: " .. code)
  end
  end)
 end
-
-function showUpdateDialog(newVer, details)
- local udlg = LuaDialog(activity)
- udlg.setTitle("Update Available: v" .. newVer)
+function checkForUpdate(manualCheck, onCompleteCallback)
+ if not UPDATE_SYSTEM_ENABLED then
+ if onCompleteCallback then onCompleteCallback(false, "Update system disabled") end
+ return
+ end
  
- local msgContent = "A new version of Podcast Voice Generator is ready for download.\n\n" ..
- "What's New:\n" .. details .. "\n\n" ..
- "Would you like to install the update now?"
+ if updateInProgress then
+ if onCompleteCallback then onCompleteCallback(false, "Update already in progress") end
+ return
+ end
  
- udlg.setMessage(msgContent)
- 
- udlg.setPositiveButton("Update Now", function()
- udlg.dismiss()
- feedback("Starting update process. Please wait.")
- startPluginUpdate()
- end)
- 
- udlg.setNegativeButton("Maybe Later", function()
- udlg.dismiss()
- end)
- 
- udlg.show()
-end
-
-function startPluginUpdate()
  updateInProgress = true
- Http.get(SCRIPT_URL, function(code, content)
- if code == 200 and content then
- local status, err = pcall(function()
- local backupFile = File(PLUGIN_PATH .. ".bak")
- local mainFile = File(PLUGIN_PATH)
  
- if mainFile.exists() then
- mainFile.renameTo(backupFile)
+ downloadFile(VERSION_URL, function(onlineVersion, errorMsg)
+ if onlineVersion then
+ onlineVersion = tostring(onlineVersion):match("^%s*(.-)%s*$")
+ 
+ if onlineVersion and onlineVersion ~= CURRENT_VERSION then
+ downloadFile(UPDATE_URL, function(updateDetails, updateError)
+ updateInProgress = false
+ 
+ if updateDetails then
+ showUpdateDialog(onlineVersion, updateDetails, manualCheck)
+ if onCompleteCallback then onCompleteCallback(true, "Update available: " .. onlineVersion) end
+ else
+ if manualCheck then
+ showErrorDialog("Update details not available: " .. (updateError or "Unknown error"))
  end
- 
- local out = BufferedWriter(FileWriter(PLUGIN_PATH))
- out.write(content)
- out.close()
- 
- feedback("Update successful!")
- showSuccessDialog("Update Successful: The plugin has been updated to the latest version. Please restart the extension to apply changes.")
+ if onCompleteCallback then onCompleteCallback(false, "No update details") end
+ end
+ end)
+ else
+ updateInProgress = false
+ if manualCheck then
+ showInfoDialog("Update Check", "You have the latest version!\nCurrent: " .. CURRENT_VERSION)
+ end
+ if onCompleteCallback then onCompleteCallback(false, "Already up to date") end
+ end
+ else
+ updateInProgress = false
+ if manualCheck then
+ showErrorDialog("Failed to check update: " .. (errorMsg or "Unknown error"))
+ end
+ if onCompleteCallback then onCompleteCallback(false, "Check failed: " .. (errorMsg or "Unknown")) end
+ end
  end)
  
- if not status then
- feedback("Update installation failed.")
- local backupFile = File(PLUGIN_PATH .. ".bak")
- if backupFile.exists() then
- backupFile.renameTo(File(PLUGIN_PATH))
+ if not manualCheck then
+ saveLastUpdateCheckTime()
+ end
+end
+function showUpdateDialog(newVersion, updateDetails, manualCheck)
+ local scrollView = ScrollView(activity)
+ local mainLayout = LinearLayout(activity)
+ mainLayout.setOrientation(LinearLayout.VERTICAL)
+ mainLayout.setPadding(dip2px(20), dip2px(20), dip2px(20), dip2px(20))
+ 
+ local titleLabel = TextView(activity)
+ titleLabel.text = "🎉 New Update Available!"
+ titleLabel.textSize = 18
+ titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
+ titleLabel.setTextColor(0xFF2196F3)
+ titleLabel.gravity = Gravity.CENTER
+ local titleParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ titleParams.bottomMargin = dip2px(10)
+ titleLabel.setLayoutParams(titleParams)
+ mainLayout.addView(titleLabel)
+ 
+ local versionLabel = TextView(activity)
+ versionLabel.text = "Version " .. newVersion
+ versionLabel.textSize = 14
+ versionLabel.setTextColor(0xFF666666)
+ versionLabel.gravity = Gravity.CENTER
+ local versionParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ versionParams.bottomMargin = dip2px(20)
+ versionLabel.setLayoutParams(versionParams)
+ mainLayout.addView(versionLabel)
+ 
+ local whatsNewLabel = TextView(activity)
+ whatsNewLabel.text = "What's New:"
+ whatsNewLabel.textSize = 16
+ whatsNewLabel.setTypeface(Typeface.DEFAULT_BOLD)
+ whatsNewLabel.setTextColor(0xFF333333)
+ local whatsNewParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ whatsNewParams.bottomMargin = dip2px(10)
+ whatsNewLabel.setLayoutParams(whatsNewParams)
+ mainLayout.addView(whatsNewLabel)
+ 
+ local updateTextView = TextView(activity)
+ updateTextView.text = updateDetails
+ updateTextView.textSize = 14
+ updateTextView.setTextColor(0xFF555555)
+ updateTextView.setLineSpacing(dip2px(2), 1.2)
+ updateTextView.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ mainLayout.addView(updateTextView)
+ 
+ local spacer = View(activity)
+ local spacerParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1)
+ spacer.setLayoutParams(spacerParams)
+ mainLayout.addView(spacer)
+ 
+ scrollView.addView(mainLayout)
+ 
+ local updateDialog = LuaDialog(activity)
+ updateDialog.setTitle("Update Available")
+ updateDialog.setView(scrollView)
+ 
+ updateDialog.setPositiveButton("Update Now", function()
+ updateDialog.dismiss()
+ performUpdate(newVersion)
+ end)
+ 
+ if manualCheck then
+ updateDialog.setNegativeButton("Close", function()
+ updateDialog.dismiss()
+ end)
+ else
+ updateDialog.setNegativeButton("Later", function()
+ updateDialog.dismiss()
+ end)
+ end
+ 
+ updateDialog.show()
+end
+function performUpdate(newVersion)
+ updateInProgress = true
+ 
+ local function downloadAndReplace()
+ downloadFile(GITHUB_RAW_URL .. "main.lua", function(newContent, errorMsg)
+ if newContent then
+ local backupPath = PLUGIN_PATH .. ".backup"
+ local backupFile = io.open(backupPath, "w")
+ if backupFile then
+ local currentFile = io.open(PLUGIN_PATH, "r")
+ if currentFile then
+ local currentContent = currentFile:read("*a")
+ currentFile:close()
+ backupFile:write(currentContent)
+ backupFile:close()
+ 
+ local newFile = io.open(PLUGIN_PATH, "w")
+ if newFile then
+ newFile:write(newContent)
+ newFile:close()
+ 
+ os.remove(backupPath)
+ 
+ runOnUi(function()
+ showInfoDialog("Update Successful", 
+ "Update to version " .. newVersion .. " completed successfully!\n\n" ..
+ "Please restart the plugin for changes to take effect.")
+ end)
+ 
+ updateInProgress = false
+ return
+ else
+ if File(backupPath).exists() then
+ os.rename(backupPath, PLUGIN_PATH)
  end
  end
  else
- feedback("Download failed. Could not fetch the update file.")
+ backupFile:close()
+ os.remove(backupPath)
+ end
+ end
+ 
+ runOnUi(function()
+ showErrorDialog("Update failed: Could not write file")
+ end)
+ else
+ runOnUi(function()
+ showErrorDialog("Update failed: " .. (errorMsg or "Unknown error"))
+ end)
  end
  updateInProgress = false
  end)
+ end
+ 
+ Thread(Runnable{
+ run = downloadAndReplace
+ }).start()
 end
-
-function showSuccessDialog(msg)
- local successDlg = LuaDialog(activity)
- successDlg.setTitle("Installation Complete")
- successDlg.setMessage(msg)
- successDlg.setPositiveButton("Got it", function()
- successDlg.dismiss()
+function checkServerMessage()
+ if not UPDATE_SYSTEM_ENABLED then return end
+ 
+ if getMessageDontShowAgain() then
+ return
+ end
+ 
+ downloadFile(MESSAGE_URL, function(messageContent, errorMsg)
+ if messageContent and #messageContent > 0 then
+ runOnUi(function()
+ showServerMessageDialog(messageContent)
  end)
- successDlg.show()
+ end
+ end)
 end
-
-function showAboutSection()
- local aboutDlg = LuaDialog(activity)
- aboutDlg.setTitle("About Podcast Voice Generator")
+function showServerMessageDialog(messageContent)
+ local scrollView = ScrollView(activity)
+ local mainLayout = LinearLayout(activity)
+ mainLayout.setOrientation(LinearLayout.VERTICAL)
+ mainLayout.setPadding(dip2px(20), dip2px(20), dip2px(20), dip2px(20))
  
- local msg = "Current Version: " .. CURRENT_VERSION .. "\n" ..
- "Developer: mn7717306-lgtm\n" ..
- "Platform: AndroLUA / CSR\n\n" ..
- "This professional tool allows you to generate high-quality podcast-style audio using Gemini and OpenAI TTS technologies."
+ local titleLabel = TextView(activity)
+ titleLabel.text = "📢 Server Message"
+ titleLabel.textSize = 18
+ titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
+ titleLabel.setTextColor(0xFF2196F3)
+ titleLabel.gravity = Gravity.CENTER
+ local titleParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ titleParams.bottomMargin = dip2px(15)
+ titleLabel.setLayoutParams(titleParams)
+ mainLayout.addView(titleLabel)
  
- aboutDlg.setMessage(msg)
+ local messageTextView = TextView(activity)
+ messageTextView.text = messageContent
+ messageTextView.textSize = 14
+ messageTextView.setTextColor(0xFF333333)
+ messageTextView.setLineSpacing(dip2px(2), 1.2)
+ messageTextView.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ mainLayout.addView(messageTextView)
  
- aboutDlg.setPositiveButton("Check for Update", function()
- checkForUpdate(true)
+ local spacer = View(activity)
+ local spacerParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(20))
+ spacer.setLayoutParams(spacerParams)
+ mainLayout.addView(spacer)
+ 
+ local checkLayout = LinearLayout(activity)
+ checkLayout.setOrientation(LinearLayout.HORIZONTAL)
+ checkLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ 
+ local checkBox = CheckBox(activity)
+ checkBox.text = "Don't show again"
+ checkBox.textSize = 12
+ checkBox.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ checkLayout.addView(checkBox)
+ 
+ local filler = View(activity)
+ filler.setLayoutParams(LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))
+ checkLayout.addView(filler)
+ 
+ mainLayout.addView(checkLayout)
+ 
+ scrollView.addView(mainLayout)
+ 
+ local messageDialog = LuaDialog(activity)
+ messageDialog.setTitle("Important Message")
+ messageDialog.setView(scrollView)
+ messageDialog.setPositiveButton("OK", function()
+ saveMessageDontShowAgain(checkBox.isChecked())
+ messageDialog.dismiss()
  end)
  
- aboutDlg.setNegativeButton("Close", function()
- aboutDlg.dismiss()
- end)
- 
- aboutDlg.show()
+ messageDialog.show()
+ saveMessageShownState(true)
 end
-checkForUpdate(false)
-
+function checkVideoLinkNotification()
+ if not UPDATE_SYSTEM_ENABLED then return end
+ 
+ if getVideoLinkShownState() then
+ return
+ end
+ 
+ downloadFile(LINK_URL, function(linkContent, errorMsg)
+ if linkContent then
+ local link, text = linkContent:match("^(.-)|(.+)$")
+ if not link then
+ link = linkContent:match("^(.-)%s*$")
+ text = "New video available!"
+ end
+ 
+ local lastLink = getLastVideoLink()
+ 
+ if link and link ~= lastLink then
+ runOnUi(function()
+ showVideoLinkDialog(link, text)
+ end)
+ saveLastVideoLink(link)
+ saveVideoLinkShownState(true)
+ end
+ end
+ end)
+end
+function showVideoLinkDialog(videoLink, messageText)
+ local scrollView = ScrollView(activity)
+ local mainLayout = LinearLayout(activity)
+ mainLayout.setOrientation(LinearLayout.VERTICAL)
+ mainLayout.setPadding(dip2px(20), dip2px(20), dip2px(20), dip2px(20))
+ 
+ local titleLabel = TextView(activity)
+ titleLabel.text = "🎬 New Video Uploaded!"
+ titleLabel.textSize = 18
+ titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
+ titleLabel.setTextColor(0xFFFF9800)
+ titleLabel.gravity = Gravity.CENTER
+ local titleParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ titleParams.bottomMargin = dip2px(15)
+ titleLabel.setLayoutParams(titleParams)
+ mainLayout.addView(titleLabel)
+ 
+ local messageTextView = TextView(activity)
+ messageTextView.text = messageText or "A new video has been uploaded to our channel!"
+ messageTextView.textSize = 14
+ messageTextView.setTextColor(0xFF333333)
+ messageTextView.setLineSpacing(dip2px(2), 1.2)
+ messageTextView.setGravity(Gravity.CENTER)
+ messageTextView.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ mainLayout.addView(messageTextView)
+ 
+ local spacer = View(activity)
+ local spacerParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(30))
+ spacer.setLayoutParams(spacerParams)
+ mainLayout.addView(spacer)
+ 
+ scrollView.addView(mainLayout)
+ 
+ local videoDialog = LuaDialog(activity)
+ videoDialog.setTitle("Video Notification")
+ videoDialog.setView(scrollView)
+ 
+ videoDialog.setPositiveButton("🎥 Watch Now", function()
+ videoDialog.dismiss()
+ if dlg and dlg.isShowing() then
+ dlg.dismiss()
+ end
+ local intent = Intent(Intent.ACTION_VIEW, Uri.parse(videoLink))
+ intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+ activity.startActivity(intent)
+ end)
+ 
+ videoDialog.setNegativeButton("Close", function()
+ videoDialog.dismiss()
+ end)
+ 
+ videoDialog.show()
+end
+function showLicenseDialog()
+ downloadFile(LICENSE_URL, function(licenseContent, errorMsg)
+ runOnUi(function()
+ local scrollView = ScrollView(activity)
+ local mainLayout = LinearLayout(activity)
+ mainLayout.setOrientation(LinearLayout.VERTICAL)
+ mainLayout.setPadding(dip2px(20), dip2px(20), dip2px(20), dip2px(20))
+ 
+ local titleLabel = TextView(activity)
+ titleLabel.text = "📄 License Agreement"
+ titleLabel.textSize = 18
+ titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
+ titleLabel.setTextColor(0xFF333333)
+ titleLabel.gravity = Gravity.CENTER
+ local titleParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+ titleParams.bottomMargin = dip2px(15)
+ titleLabel.setLayoutParams(titleParams)
+ mainLayout.addView(titleLabel)
+ 
+ local licenseTextView = TextView(activity)
+ if licenseContent then
+ licenseTextView.text = licenseContent
+ else
+ licenseTextView.text = "Unable to load license. Please check your internet connection.\n\nError: " .. (errorMsg or "Unknown")
+ end
+ licenseTextView.textSize = 12
+ licenseTextView.setTextColor(0xFF555555)
+ licenseTextView.setLineSpacing(dip2px(1), 1.1)
+ licenseTextView.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ mainLayout.addView(licenseTextView)
+ 
+ scrollView.addView(mainLayout)
+ 
+ local licenseDialog = LuaDialog(activity)
+ licenseDialog.setTitle("Licenses and Agreements")
+ licenseDialog.setView(scrollView)
+ licenseDialog.setPositiveButton("Close", nil)
+ licenseDialog.show()
+ end)
+ end)
+end
+function performAutoChecks()
+ if not UPDATE_SYSTEM_ENABLED then return end
+ 
+ local currentTime = System.currentTimeMillis()
+ local lastCheck = getLastUpdateCheckTime()
+ 
+ if currentTime - lastCheck > UPDATE_CHECK_INTERVAL then
+ checkForUpdate(false, function(updateAvailable, message)
+ if updateAvailable then
+ end
+ end)
+ end
+ 
+ checkServerMessage()
+ 
+ checkVideoLinkNotification()
+end
 function updateApiUrl()
  if API_ENDPOINTS[SELECTED_API_PROVIDER] then
  return API_ENDPOINTS[SELECTED_API_PROVIDER](API_KEY)
@@ -345,23 +718,19 @@ function updateApiUrl()
  return API_ENDPOINTS["OpenAI Official (GPT-4o mini TTS)"](API_KEY)
  end
 end
-
 function runOnUi(callback)
  mainHandler.post(Runnable{ run = callback })
 end
-
 function vibrate()
  local vibrator = activity.getSystemService(Context.VIBRATOR_SERVICE)
  if vibrator and vibrator.hasVibrator() then
  pcall(function() vibrator.vibrate(35) end)
  end
 end
-
 function estimateTokens(text)
  if not text then return 0 end
  return math.ceil(string.len(text) / 4)
 end
-
 function cleanupAllResources()
  for name, player in pairs(activePlayers) do
  if player then
@@ -445,7 +814,6 @@ function cleanupAllResources()
  System.gc()
  System.runFinalization()
 end
-
 function stopAudio()
  if audioPlayer then
  pcall(function()
@@ -463,7 +831,6 @@ function stopAudio()
  playButton.setEnabled(true)
  end
 end
-
 function stopTestAudio()
  if testAudioPlayer then
  pcall(function()
@@ -476,7 +843,6 @@ function stopTestAudio()
  activePlayers["test"] = nil
  end
 end
-
 function stopConfigTestAudio()
  if configTestAudioPlayer then
  pcall(function()
@@ -489,7 +855,6 @@ function stopConfigTestAudio()
  activePlayers["config"] = nil
  end
 end
-
 function stopTutorialAudio()
  if tutorialPlayer then
  pcall(function()
@@ -508,7 +873,6 @@ function stopTutorialAudio()
  tutorialTimer = nil
  end
 end
-
 function showErrorDialog(msg)
  runOnUi(function()
  LuaDialog(activity)
@@ -526,7 +890,6 @@ function showErrorDialog(msg)
  if podcastProgressBar then podcastProgressBar.setVisibility(View.GONE) end
  end)
 end
-
 function showInfoDialog(title, msg)
  runOnUi(function()
  LuaDialog(activity)
@@ -536,7 +899,6 @@ function showInfoDialog(title, msg)
  .show()
  end)
 end
-
 function updateCharCounter()
  runOnUi(function()
  local text = chatInput.text or ""
@@ -560,23 +922,18 @@ function updateCharCounter()
  charCounter.setTextColor(color)
  end)
 end
-
 function getPrefs()
  return activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 end
-
 function getGeminiPrefs()
  return activity.getSharedPreferences(GEMINI_PREFS, Context.MODE_PRIVATE)
 end
-
 function getGenerationStatePrefs()
  return activity.getSharedPreferences(GENERATION_STATE_PREFS, Context.MODE_PRIVATE)
 end
-
 function getBackgroundServicePrefs()
  return activity.getSharedPreferences(BACKGROUND_SERVICE_PREFS, Context.MODE_PRIVATE)
 end
-
 function saveBackgroundServiceState(state)
  local prefs = getBackgroundServicePrefs()
  local editor = prefs.edit()
@@ -592,7 +949,6 @@ function saveBackgroundServiceState(state)
  editor.putLong("startTime", state.startTime or 0)
  editor.apply()
 end
-
 function loadBackgroundServiceState()
  local prefs = getBackgroundServicePrefs()
  local state = {}
@@ -608,14 +964,12 @@ function loadBackgroundServiceState()
  state.startTime = prefs.getLong("startTime", 0)
  return state
 end
-
 function clearBackgroundServiceState()
  local prefs = getBackgroundServicePrefs()
  local editor = prefs.edit()
  editor.clear()
  editor.apply()
 end
-
 function saveGenerationState()
  local prefs = getGenerationStatePrefs()
  local editor = prefs.edit()
@@ -632,7 +986,6 @@ function saveGenerationState()
  editor.putString("chunks", chunksJson)
  editor.apply()
 end
-
 function loadGenerationState()
  local prefs = getGenerationStatePrefs()
  isGenerationActive = prefs.getBoolean("isActive", false)
@@ -659,7 +1012,6 @@ function loadGenerationState()
  currentGenerationChunks = {}
  end
 end
-
 function clearGenerationState()
  local prefs = getGenerationStatePrefs()
  local editor = prefs.edit()
@@ -676,7 +1028,6 @@ function clearGenerationState()
  currentGenerationChunkIndex = 0
  currentGenerationTotalChunks = 0
 end
-
 function saveGeminiConfig()
  local prefs = getGeminiPrefs()
  local editor = prefs.edit()
@@ -684,13 +1035,11 @@ function saveGeminiConfig()
  editor.putString("API_PROVIDER", SELECTED_API_PROVIDER)
  editor.apply()
 end
-
 function loadGeminiConfig()
  local prefs = getGeminiPrefs()
  API_KEY = prefs.getString("API_KEY", DEFAULT_API_KEY)
  SELECTED_API_PROVIDER = prefs.getString("API_PROVIDER", "OpenAI Official (GPT-4o mini TTS)")
 end
-
 function saveConfig()
  local prefs = getPrefs()
  local editor = prefs.edit()
@@ -710,7 +1059,6 @@ function saveConfig()
  end
  editor.apply()
 end
-
 function loadConfig()
  loadGeminiConfig()
  local prefs = getPrefs()
@@ -730,7 +1078,6 @@ function loadConfig()
  
  runOnUi(function()
  modeSpinner.setSelection(currentMode)
-
  local function setSpinner(spinner, name, list)
  if not spinner then return end
  for i=1, #list do
@@ -750,7 +1097,6 @@ function loadConfig()
  updateCharCounter()
  end)
 end
-
 function writeWavHeader(outStream, totalAudioLen, longSampleRate, channels, byteRate)
  local totalDataLen = totalAudioLen
  local totalSize = totalDataLen + 36
@@ -789,7 +1135,6 @@ function writeWavHeader(outStream, totalAudioLen, longSampleRate, channels, byte
  outStream.write(header[i])
  end
 end
-
 function mergeAndSavePodcast()
  local status, err = pcall(function()
  if #audioParts == 0 then
@@ -877,7 +1222,6 @@ function mergeAndSavePodcast()
  showErrorDialog("Merge Error: " .. tostring(err))
  end
 end
-
 function getSystemPrompt(emotionName, customPrompt, currentSpeed, currentPitch)
  local emotionText = ""
  if emotionName == "Custom" then
@@ -924,7 +1268,6 @@ function getSystemPrompt(emotionName, customPrompt, currentSpeed, currentPitch)
  local combinedPrompt = emotionText .. pitchPrompt .. speedPrompt
  return combinedPrompt
 end
-
 function splitTextIntoChunks(text, chunkSize)
  if not text or #text == 0 then return {} end
  text = text:gsub("\r\n", "\n"):gsub("\r", "\n")
@@ -1007,7 +1350,6 @@ function splitTextIntoChunks(text, chunkSize)
  
  return chunks
 end
-
 function getCurrentVoiceMap()
  if SELECTED_API_PROVIDER == "OpenAI Official (GPT-4o mini TTS)" then
  return voiceMapOpenAI
@@ -1015,7 +1357,6 @@ function getCurrentVoiceMap()
  return voiceMapGemini
  end
 end
-
 function updateVoicesBasedOnProvider()
  local currentVoiceMap = getCurrentVoiceMap()
  local voiceNames = {}
@@ -1048,7 +1389,6 @@ function updateVoicesBasedOnProvider()
  updateVoiceSelector()
  end
 end
-
 function stringToBytes(str)
  local bytes = {}
  for i = 1, #str do
@@ -1056,7 +1396,6 @@ function stringToBytes(str)
  end
  return bytes
 end
-
 function cleanTextForAudio(text)
  if not text then return "" end
  local cleaned = text
@@ -1081,7 +1420,6 @@ function cleanTextForAudio(text)
  
  return cleaned
 end
-
 function processOpenAIRequest(text, voiceName, emotion, speed, pitch, callback)
  if SELECTED_API_PROVIDER ~= "OpenAI Official (GPT-4o mini TTS)" then
  callback(nil, "Error: Selected provider is not OpenAI. Please check your settings.")
@@ -1143,7 +1481,6 @@ function processOpenAIRequest(text, voiceName, emotion, speed, pitch, callback)
  end
  end)
 end
-
 function processLongTextInChunks(text, voiceName, emotion, speed, pitch, isSaving)
  stopTestAudio()
  stopAudio()
@@ -1217,7 +1554,6 @@ function processLongTextInChunks(text, voiceName, emotion, speed, pitch, isSavin
  acquireWakeLock()
  processNextChunk(chunks, voiceName, emotion, speed, pitch, isSaving, 1, #chunks)
 end
-
 function processNextChunk(chunks, voiceName, emotion, speed, pitch, isSaving, index, totalChunks)
  if index > totalChunks then
  mergeAndSavePodcast()
@@ -1249,7 +1585,6 @@ function processNextChunk(chunks, voiceName, emotion, speed, pitch, isSaving, in
  end
  end)
  
-
  local function handleChunkError(errorMsg)
  isGenerationActive = false
  clearGenerationState()
@@ -1336,7 +1671,6 @@ function processNextChunk(chunks, voiceName, emotion, speed, pitch, isSaving, in
  end)
  end
 end
-
 function testSpeak(text, voiceName, currentEmotion, currentSpeed, currentPitch, isSaving, isConfigTest)
  if isConfigTest then
  stopConfigTestAudio()
@@ -1660,7 +1994,6 @@ function testSpeak(text, voiceName, currentEmotion, currentSpeed, currentPitch, 
  end
  end)
 end
-
 function acquireWakeLock()
  if not backgroundWakeLock then
  local powerManager = activity.getSystemService(Context.POWER_SERVICE)
@@ -1670,7 +2003,6 @@ function acquireWakeLock()
  backgroundWakeLock.acquire()
  end
 end
-
 function releaseWakeLock()
  if backgroundWakeLock then
  pcall(function()
@@ -1681,7 +2013,6 @@ function releaseWakeLock()
  backgroundWakeLock = nil
  end
 end
-
 function processMultiVoicePodcast()
  local rawText = scriptInput.text
  if #rawText == 0 then
@@ -1744,11 +2075,9 @@ function processMultiVoicePodcast()
  if processMultiVoiceLine then
  processMultiVoiceLine(lines, 1, #lines)
  else
-
  showErrorDialog("Error: processMultiVoiceLine function not found.")
  end
 end
-
 function resumeGenerationIfNeeded()
  loadGenerationState()
  local bgState = loadBackgroundServiceState()
@@ -1831,7 +2160,6 @@ function resumeGenerationIfNeeded()
  
  return false
 end
-
 function processOpenAIMultiVoiceLine(speakerName, textToSpeak, selectedVoice, currentEmotion, tempCustomPrompt, currentSpeed, currentPitch, callback)
  if SELECTED_API_PROVIDER ~= "OpenAI Official (GPT-4o mini TTS)" then
  local systemPrompt = getSystemPrompt(currentEmotion, tempCustomPrompt, currentSpeed, currentPitch)
@@ -1959,7 +2287,6 @@ function processOpenAIMultiVoiceLine(speakerName, textToSpeak, selectedVoice, cu
  end
  end)
 end
-
 function processMultiVoiceLine(dialogueList, index, totalLines)
  if index > totalLines then
  runOnUi(function()
@@ -2051,7 +2378,6 @@ function processMultiVoiceLine(dialogueList, index, totalLines)
  end
  end)
  
-
  local function handleLineError(errMsg)
  isGenerationActive = false
  clearGenerationState()
@@ -2145,7 +2471,6 @@ function processMultiVoiceLine(dialogueList, index, totalLines)
  end)
  end
 end
-
 function saveAudioFile(sourcePath, selectedFormat)
  local status, savedPath = pcall(function()
  local sourceFile = File(sourcePath)
@@ -2199,7 +2524,6 @@ function saveAudioFile(sourcePath, selectedFormat)
  end
  return savedPath
 end
-
 function showCustomEmotionDialog(voiceIndex, onSaveCallback)
  local currentPrompt = customEmotionPrompt
  local name = configNames[voiceIndex]
@@ -2243,13 +2567,11 @@ function showCustomEmotionDialog(voiceIndex, onSaveCallback)
  .setNegativeButton("Cancel", nil)
  d.show()
 end
-
 local function setupControlSeekBar(seekBar, textView, isSpeed, currentVal, onValueChange)
  local minVal, maxVal, step = isSpeed and 0.5 or -2.0, isSpeed and 3.0 or 2.0, isSpeed and 0.1 or 0.2
  local range = maxVal - minVal
  seekBar.setMax(100)
  
-
  local function updateValue(progress)
  local value = minVal + (range * progress / 100)
  local snappedValue = math.floor(value / step + 0.5) * step
@@ -2275,7 +2597,6 @@ local function setupControlSeekBar(seekBar, textView, isSpeed, currentVal, onVal
  local progress = math.floor(((currentVal - minVal) / range) * 100)
  seekBar.setProgress(progress)
 end
-
 function showVoiceConfigDialog(voiceIndex)
  local currentName = configNames[voiceIndex]
  local currentVoiceID = configVoices[voiceIndex]
@@ -2563,7 +2884,6 @@ function showVoiceConfigDialog(voiceIndex)
  end)
  end
 end
-
 function showAllVoicesConfigDialog()
  local voiceLimit = 6
  local dialogTitle = "Configure All Voices (1-6)"
@@ -2627,7 +2947,6 @@ function showAllVoicesConfigDialog()
  .setPositiveButton("Close", nil)
  .show()
 end
-
 function processTextForEmotion(rawText)
  local mode = textEmotionMode
  if mode == "Default (Keep as is)" or not rawText then
@@ -2693,7 +3012,6 @@ function processTextForEmotion(rawText)
  
  return newText:gsub("\n$", "")
 end
-
 function updateUIMode(mode)
  currentMode = mode
  saveConfig()
@@ -2801,7 +3119,6 @@ function updateUIMode(mode)
  if updateCharCounter then updateCharCounter() end
  if updateVoiceSelector then updateVoiceSelector() end
 end
-
 function testGeminiApi(apiKey, onResult)
  local testModel = "gemini-2.5-flash"
  local apiUrl
@@ -2864,7 +3181,6 @@ function testGeminiApi(apiKey, onResult)
  end
  end)
 end
-
 function testOpenAIApi(apiKey, onResult)
  if SELECTED_API_PROVIDER ~= "OpenAI Official (GPT-4o mini TTS)" then
  onResult(false, "Please select OpenAI Official as provider for testing.")
@@ -2902,7 +3218,6 @@ function testOpenAIApi(apiKey, onResult)
  end
  end)
 end
-
 function showGeminiConfigDialog()
  local tempApiKey = API_KEY
  local tempApiProvider = SELECTED_API_PROVIDER
@@ -2929,67 +3244,59 @@ function showGeminiConfigDialog()
  providerLabel.textSize = 14
  providerLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
  local providerLabelParams = providerLabel.getLayoutParams()
- if providerLabelParams then
+if providerLabelParams then
  providerLabelParams.topMargin = dip2px(10)
- end
- mainLayout.addView(providerLabel)
- 
- local providerSpinner = Spinner(activity)
- providerSpinner.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- mainLayout.addView(providerSpinner)
- 
- local keyLabel = TextView(activity)
- keyLabel.text = "2. API Key:"
- keyLabel.textSize = 14
- keyLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local keyLabelParams = keyLabel.getLayoutParams()
- if keyLabelParams then
+end
+mainLayout.addView(providerLabel)
+local providerSpinner = Spinner(activity)
+providerSpinner.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+mainLayout.addView(providerSpinner)
+local keyLabel = TextView(activity)
+keyLabel.text = "2. API Key:"
+keyLabel.textSize = 14
+keyLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+local keyLabelParams = keyLabel.getLayoutParams()
+if keyLabelParams then
  keyLabelParams.topMargin = dip2px(15)
- end
- mainLayout.addView(keyLabel)
- 
- local keyInput = EditText(activity)
- keyInput.text = tempApiKey
- keyInput.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- keyInput.hint = "Enter API Key..."
- mainLayout.addView(keyInput)
- 
- local noteLabel = TextView(activity)
- noteLabel.text = "Note: Gemini is recommended for better performance. For OpenAI, use official keys."
- noteLabel.textSize = 12
- noteLabel.setTextColor(0xFF555555)
- noteLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local noteLabelParams = noteLabel.getLayoutParams()
- if noteLabelParams then
+end
+mainLayout.addView(keyLabel)
+local keyInput = EditText(activity)
+keyInput.text = tempApiKey
+keyInput.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+keyInput.hint = "Enter API Key..."
+mainLayout.addView(keyInput)
+local noteLabel = TextView(activity)
+noteLabel.text = "Note: Gemini is recommended for better performance. For OpenAI, use official keys."
+noteLabel.textSize = 12
+noteLabel.setTextColor(0xFF555555)
+noteLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+local noteLabelParams = noteLabel.getLayoutParams()
+if noteLabelParams then
  noteLabelParams.topMargin = dip2px(5)
- end
- mainLayout.addView(noteLabel)
- 
- local testButton = Button(activity)
- testButton.text = "Test API Connection"
- testButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local testButtonParams = testButton.getLayoutParams()
- if testButtonParams then
+end
+mainLayout.addView(noteLabel)
+local testButton = Button(activity)
+testButton.text = "Test API Connection"
+testButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+local testButtonParams = testButton.getLayoutParams()
+if testButtonParams then
  testButtonParams.topMargin = dip2px(15)
- end
- mainLayout.addView(testButton)
- 
- local resultText = TextView(activity)
- resultText.text = "Test status: Not tested"
- resultText.textSize = 12
- resultText.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local resultTextParams = resultText.getLayoutParams()
- if resultTextParams then
+end
+mainLayout.addView(testButton)
+local resultText = TextView(activity)
+resultText.text = "Test status: Not tested"
+resultText.textSize = 12
+resultText.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+local resultTextParams = resultText.getLayoutParams()
+if resultTextParams then
  resultTextParams.topMargin = dip2px(5)
- end
- mainLayout.addView(resultText)
- 
- scrollView.addView(mainLayout)
- 
- local d = LuaDialog(activity)
- d.setTitle("API Configuration")
- d.setView(scrollView)
- d.setPositiveButton("Save", function()
+end
+mainLayout.addView(resultText)
+scrollView.addView(mainLayout)
+local d = LuaDialog(activity)
+d.setTitle("API Configuration")
+d.setView(scrollView)
+d.setPositiveButton("Save", function()
  API_KEY = tostring(keyInput.text)
  SELECTED_API_PROVIDER = tempApiProvider
  
@@ -3004,38 +3311,33 @@ function showGeminiConfigDialog()
  runOnUi(function()
  showInfoDialog("Success", "Configuration saved! Provider set to: " .. SELECTED_API_PROVIDER)
  end)
- end)
- d.setNegativeButton("Cancel", nil)
- d.show()
- 
- local providerAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, API_PROVIDERS)
- providerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
- providerSpinner.setAdapter(providerAdapter)
- 
- local providerIndex = 0
- for i=1, #API_PROVIDERS do
+end)
+d.setNegativeButton("Cancel", nil)
+d.show()
+local providerAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, API_PROVIDERS)
+providerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+providerSpinner.setAdapter(providerAdapter)
+local providerIndex = 0
+for i=1, #API_PROVIDERS do
  if API_PROVIDERS[i] == tempApiProvider then
  providerIndex = i - 1
  break
  end
- end
- providerSpinner.setSelection(providerIndex)
- 
- providerSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener{
+end
+providerSpinner.setSelection(providerIndex)
+providerSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener{
  onItemSelected = function(parent, view, position, id)
  tempApiProvider = API_PROVIDERS[position + 1]
  resultText.text = "Test status: Need to test again"
  end
- })
- 
- keyInput.addTextChangedListener(TextWatcher{
+})
+keyInput.addTextChangedListener(TextWatcher{
  onTextChanged = function(s, start, before, count)
  tempApiKey = tostring(s)
  resultText.text = "Test status: Need to test again"
  end
- })
- 
- testButton.onClick = function()
+})
+testButton.onClick = function()
  vibrate()
  local key = tostring(keyInput.text)
  local provider = API_PROVIDERS[providerSpinner.getSelectedItemPosition() + 1]
@@ -3067,7 +3369,6 @@ function showGeminiConfigDialog()
  else
  runOnUi(function() 
  testButton.setEnabled(true)
-
  resultText.text = "Error: testOpenAIApi function not found" 
  end)
  end
@@ -3083,15 +3384,13 @@ function showGeminiConfigDialog()
  else
  runOnUi(function() 
  testButton.setEnabled(true)
-
  resultText.text = "Error: testGeminiApi function not found" 
  end)
  end
  end
  end }).start()
- end
 end
-
+end
 function getAudioFilesList()
  local dir = File(USER_AUDIO_DIR)
  local files = {}
@@ -3133,7 +3432,6 @@ function getAudioFilesList()
  
  return files
 end
-
 function showProfessionalPlayer(file)
  local player = MediaPlayer()
  local playerState = "stopped"
@@ -3321,7 +3619,6 @@ function showProfessionalPlayer(file)
  .setView(scrollView)
  .show()
  
-
  local function stopAndCleanup()
  playerState = "stopped"
  
@@ -3350,7 +3647,6 @@ function showProfessionalPlayer(file)
  end)
  end
  
-
  local function updatePlayerState()
  if playerState == "playing" then
  playPauseButton.text = "⏸"
@@ -3361,7 +3657,6 @@ function showProfessionalPlayer(file)
  end
  end
  
-
  local function loadNewFile(newFile, newIndex)
  stopAndCleanup()
  
@@ -3427,7 +3722,6 @@ function showProfessionalPlayer(file)
  player.start()
  playerState = "playing"
  
-
  local function update()
  if playerState == "playing" and player and pcall(function() return player.isPlaying() end) then
  local currentPos = player.getCurrentPosition()
@@ -3450,7 +3744,6 @@ function showProfessionalPlayer(file)
  player.start()
  playerState = "playing"
  
-
  local function update()
  if playerState == "playing" and player and pcall(function() return player.isPlaying() end) then
  local currentPos = player.getCurrentPosition()
@@ -3548,7 +3841,6 @@ function showProfessionalPlayer(file)
  end
  })
 end
-
 function showAudioManagementDialog()
  local audioFiles = getAudioFilesList()
  
@@ -3601,7 +3893,6 @@ function showAudioManagementDialog()
  
  local currentOptionsDialog = nil
  
-
  local function displayFiles()
  fileContainer.removeAllViews()
  if #audioFiles == 0 then
@@ -3677,8 +3968,7 @@ function showAudioManagementDialog()
  end
  end
  
-
-function showFileOptionsDialog(file, parentDialog)
+ function showFileOptionsDialog(file, parentDialog)
  if currentOptionsDialog then
  currentOptionsDialog.dismiss()
  currentOptionsDialog = nil
@@ -3730,21 +4020,18 @@ function showFileOptionsDialog(file, parentDialog)
  if showProfessionalPlayer then
  showProfessionalPlayer(file)
  else
-
  showErrorDialog("Player function not found.")
  end
  elseif option == "Share" then
  if shareAudioFile then
  shareAudioFile(file)
  else
-
  showErrorDialog("Share function not found.")
  end
  elseif option == "Rename" then
  if showRenameDialog then
  showRenameDialog(file, parentDialog)
  else
-
  showErrorDialog("Rename function not found.")
  end
  elseif option == "Delete" then
@@ -3808,9 +4095,9 @@ function showFileOptionsDialog(file, parentDialog)
  currentOptionsDialog = nil
  end
  })
-end
-
-function shareAudioFile(file)
+ end
+ 
+ function shareAudioFile(file)
  if currentOptionsDialog then
  currentOptionsDialog.dismiss()
  currentOptionsDialog = nil
@@ -3889,9 +4176,9 @@ function shareAudioFile(file)
  end
  end)
  end
-end
-
-function showRenameDialog(file, parentDialog)
+ end
+ 
+ function showRenameDialog(file, parentDialog)
  local renameInput = EditText(activity)
  renameInput.text = file.name
  local container = LinearLayout(activity)
@@ -3939,7 +4226,6 @@ function showRenameDialog(file, parentDialog)
  
  displayFiles()
 end
-
 function formatFileSize(bytes)
  if bytes < 1024 then
  return bytes .. " B"
@@ -3949,13 +4235,11 @@ function formatFileSize(bytes)
  return string.format("%.1f MB", bytes / (1024 * 1024))
  end
 end
-
 function formatDate(timestamp)
  local date = Date(timestamp)
  local format = SimpleDateFormat("dd/MM/yy HH:mm")
  return format.format(date)
 end
-
 function showAudioPlayerDialog()
  stopTutorialAudio()
  local TUTORIAL_AUDIO_PATH = "/storage/emulated/0/解说/Plugins/Podcast Voice Generator/How to use.mp3"
@@ -3997,19 +4281,16 @@ function showAudioPlayerDialog()
  end
  })
  
-
  local function startUpdateTimer()
  isPlaying = true
  updateHandler.post(updateRunnable)
  end
  
-
  local function stopUpdateTimer()
  isPlaying = false
  updateHandler.removeCallbacks(updateRunnable)
  end
  
-
  local function stopTutorialAudioInternal()
  stopUpdateTimer()
  if tutorialPlayer then
@@ -4031,7 +4312,6 @@ function showAudioPlayerDialog()
  end
  end
  
-
  local function formatTime(milliseconds)
  local totalSeconds = math.floor(milliseconds / 1000)
  local minutes = math.floor(totalSeconds / 60)
@@ -4150,7 +4430,7 @@ function showAudioPlayerDialog()
  
  local controlLayout = LinearLayout(activity)
  controlLayout.setOrientation(LinearLayout.HORIZONTAL)
- controlLayout.setGravity(Gravity.CENTER)
+ controlLayout.setGravity = Gravity.CENTER
  local controlParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
  controlParams.bottomMargin = dip2px(15)
  controlLayout.setLayoutParams(controlParams)
@@ -4185,7 +4465,7 @@ function showAudioPlayerDialog()
  
  local closeButtonLayout = LinearLayout(activity)
  closeButtonLayout.setOrientation(LinearLayout.HORIZONTAL)
- closeButtonLayout.setGravity(Gravity.CENTER)
+ closeButtonLayout.setGravity = Gravity.CENTER
  closeButtonLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
  
  local closeButton = Button(activity)
@@ -4212,7 +4492,6 @@ function showAudioPlayerDialog()
  speedSpinner.setAdapter(speedAdapter)
  speedSpinner.setSelection(currentSpeedIndex - 1)
  
-
  local function initializePlayer()
  local success, errorMsg = pcall(function()
  tutorialPlayer = MediaPlayer()
@@ -4367,7 +4646,6 @@ function showAudioPlayerDialog()
  end
  })
 end
-
 function showAboutDialog()
  local scrollView = ScrollView(activity)
  local mainLayout = LinearLayout(activity)
@@ -4382,8 +4660,15 @@ function showAboutDialog()
  titleLabel.setGravity(Gravity.CENTER)
  mainLayout.addView(titleLabel)
  
+ local providerLabel = TextView(activity)
+ providerLabel.text = "Using " .. tostring(SELECTED_API_PROVIDER)
+ providerLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ providerLabel.setGravity(Gravity.CENTER)
+ providerLabel.textSize = 12
+ mainLayout.addView(providerLabel)
+ 
  local versionLabel = TextView(activity)
- versionLabel.text = "Version: " .. CURRENT_VERSION .. " | Using " .. tostring(SELECTED_API_PROVIDER)
+ versionLabel.text = "Version " .. CURRENT_VERSION
  versionLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
  versionLabel.setGravity(Gravity.CENTER)
  versionLabel.textSize = 12
@@ -4392,64 +4677,123 @@ function showAboutDialog()
  local divider1 = View(activity)
  divider1.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(1)))
  divider1.setBackgroundColor(0xFFCCCCCC)
- local divider1Params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(1))
+ local divider1Params = divider1.getLayoutParams()
+ if divider1Params then
  divider1Params.topMargin = dip2px(10)
  divider1Params.bottomMargin = dip2px(10)
- divider1.setLayoutParams(divider1Params)
+ end
  mainLayout.addView(divider1)
  
  local connectLabel = TextView(activity)
  connectLabel.text = "Connect with Developer:"
+ connectLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
  connectLabel.textSize = 14
  mainLayout.addView(connectLabel)
  
  local whatsappButton = Button(activity)
  whatsappButton.text = "Contact Developer (WhatsApp)"
  whatsappButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local whatsappButtonParams = whatsappButton.getLayoutParams()
+ if whatsappButtonParams then
+ whatsappButtonParams.topMargin = dip2px(5)
+ end
  mainLayout.addView(whatsappButton)
  
  local telegramButton = Button(activity)
  telegramButton.text = "Join Telegram Channel"
  telegramButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local telegramButtonParams = telegramButton.getLayoutParams()
+ if telegramButtonParams then
+ telegramButtonParams.topMargin = dip2px(5)
+ end
  mainLayout.addView(telegramButton)
  
  local youtubeButton = Button(activity)
- youtubeButton.text = "Watch Tutorial Playlist"
+ youtubeButton.text = "Watch tutorial playlist by Nafees Khan"
  youtubeButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local youtubeButtonParams = youtubeButton.getLayoutParams()
+ if youtubeButtonParams then
+ youtubeButtonParams.topMargin = dip2px(5)
+ end
  mainLayout.addView(youtubeButton)
- local updateDetailsBtn = Button(activity)
- updateDetailsBtn.text = "Check Update Details"
- updateDetailsBtn.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- updateDetailsBtn.getLayoutParams().topMargin = dip2px(5)
- mainLayout.addView(updateDetailsBtn)
+ 
+ local updateButton = Button(activity)
+ updateButton.text = "🔍 Check for Updates"
+ updateButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local updateButtonParams = updateButton.getLayoutParams()
+ if updateButtonParams then
+ updateButtonParams.topMargin = dip2px(5)
+ end
+ mainLayout.addView(updateButton)
+ 
+ local licenseButton = Button(activity)
+ licenseButton.text = "📄 Licenses and Agreements"
+ licenseButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local licenseButtonParams = licenseButton.getLayoutParams()
+ if licenseButtonParams then
+ licenseButtonParams.topMargin = dip2px(5)
+ end
+ mainLayout.addView(licenseButton)
  
  local divider2 = View(activity)
  divider2.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(1)))
  divider2.setBackgroundColor(0xFFCCCCCC)
- local divider2Params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(1))
+ local divider2Params = divider2.getLayoutParams()
+ if divider2Params then
  divider2Params.topMargin = dip2px(10)
  divider2Params.bottomMargin = dip2px(10)
- divider2.setLayoutParams(divider2Params)
+ end
  mainLayout.addView(divider2)
  
  local configLabel = TextView(activity)
  configLabel.text = "Current configuration:"
+ configLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
  configLabel.textSize = 12
  mainLayout.addView(configLabel)
  
+ local providerInfo = TextView(activity)
+ providerInfo.text = "Provider: " .. tostring(SELECTED_API_PROVIDER)
+ providerInfo.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ providerInfo.textSize = 12
+ mainLayout.addView(providerInfo)
+ 
  local voicesInfo = TextView(activity)
  voicesInfo.text = "Available Voices: " .. (SELECTED_API_PROVIDER == "OpenAI Official (GPT-4o mini TTS)" and "6" or "31")
+ voicesInfo.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
  voicesInfo.textSize = 12
  mainLayout.addView(voicesInfo)
+ 
+ if API_KEY and #API_KEY > 5 then
+ local apiInfo = TextView(activity)
+ apiInfo.text = "API Key: Configured"
+ apiInfo.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ apiInfo.textSize = 12
+ mainLayout.addView(apiInfo)
+ else
+ local apiInfo = TextView(activity)
+ apiInfo.text = "API Key: Not configured"
+ apiInfo.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ apiInfo.textSize = 12
+ apiInfo.setTextColor(0xFFFF0000)
+ mainLayout.addView(apiInfo)
+ end
  
  local configButton = Button(activity)
  configButton.text = "Configure API Settings"
  configButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local configButtonParams = configButton.getLayoutParams()
+ if configButtonParams then
+ configButtonParams.topMargin = dip2px(10)
+ end
  mainLayout.addView(configButton)
  
  local tutorialButton = Button(activity)
  tutorialButton.text = "How to Use Tutorial"
  tutorialButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+ local tutorialButtonParams = tutorialButton.getLayoutParams()
+ if tutorialButtonParams then
+ tutorialButtonParams.topMargin = dip2px(5)
+ end
  mainLayout.addView(tutorialButton)
  
  scrollView.addView(mainLayout)
@@ -4457,97 +4801,66 @@ function showAboutDialog()
  local aboutDialog = LuaDialog(activity)
  aboutDialog.setTitle("About & Configuration")
  aboutDialog.setView(scrollView)
- aboutDialog.setPositiveButton("OK", function() aboutDialog.dismiss() end)
+ aboutDialog.setPositiveButton("OK", function()
+ aboutDialog.dismiss()
+ end)
  
- updateDetailsBtn.onClick = function()
+ configButton.onClick = function()
+ aboutDialog.dismiss()
  vibrate()
- showAdvancedUpdateDialog()
+ showGeminiConfigDialog()
  end
- configButton.onClick = function() aboutDialog.dismiss(); vibrate(); showGeminiConfigDialog() end
- tutorialButton.onClick = function() aboutDialog.dismiss(); vibrate(); showAudioPlayerDialog() end
- whatsappButton.onClick = function() 
- aboutDialog.dismiss(); vibrate()
- local url = "https://wa.me/message/W4BX62NMZLS3L1?text=" .. Uri.encode("Hello! I'm using your Podcast Voice Generator.")
- activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+ 
+ tutorialButton.onClick = function()
+ aboutDialog.dismiss()
+ vibrate()
+ showAudioPlayerDialog()
  end
+ 
+ updateButton.onClick = function()
+ aboutDialog.dismiss()
+ vibrate()
+ checkForUpdate(true, function(updateAvailable, message)
+ if not updateAvailable then
+ showInfoDialog("Update Check", "You have the latest version!")
+ end
+ end)
+ end
+ 
+ licenseButton.onClick = function()
+ aboutDialog.dismiss()
+ vibrate()
+ showLicenseDialog()
+ end
+ 
+ whatsappButton.onClick = function()
+ aboutDialog.dismiss()
+ vibrate()
+ local whatsappMessage = "Hello! I'm using your Podcast Voice Generator extension. It's amazing!"
+ local finalUrl = "https://wa.me/message/W4BX62NMZLS3L1?text=" .. Uri.encode(whatsappMessage)
+ local intent = Intent(Intent.ACTION_VIEW, Uri.parse(finalUrl))
+ intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+ activity.startActivity(intent)
+ end
+ 
  telegramButton.onClick = function()
- aboutDialog.dismiss(); vibrate()
- activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/TechForVI")).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+ aboutDialog.dismiss()
+ vibrate()
+ local intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/TechForVI"))
+ intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+ activity.startActivity(intent)
  end
+ 
  youtubeButton.onClick = function()
- aboutDialog.dismiss(); vibrate()
- activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/playlist?list=PLwHsDrP1D5-nJHrr7Q9iyc3g_j3imS2Io")).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+ aboutDialog.dismiss()
+ vibrate()
+ local intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/playlist?list=PLwHsDrP1D5-nJHrr7Q9iyc3g_j3imS2Io"))
+ intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+ activity.startActivity(intent)
  end
  
  aboutDialog.show()
 end
-
-function showAdvancedUpdateDialog()
- local updLayout = LinearLayout(activity)
- updLayout.setOrientation(LinearLayout.VERTICAL)
- updLayout.setPadding(dip2px(20), dip2px(20), dip2px(20), dip2px(20))
- 
- local statusTitle = TextView(activity)
- statusTitle.text = "Checking for updates..."
- statusTitle.textSize = 16
- statusTitle.setGravity(Gravity.CENTER)
- updLayout.addView(statusTitle)
- 
- local detailText = TextView(activity)
- detailText.text = "Connecting to GitHub..."
- detailText.textSize = 13
- detailText.setGravity(Gravity.CENTER)
- detailText.setPadding(0, dip2px(10), 0, dip2px(20))
- updLayout.addView(detailText)
- 
- local actionBtn = Button(activity)
- actionBtn.text = "Please Wait..."
- actionBtn.setEnabled(false)
- updLayout.addView(actionBtn)
- 
- local updDlg = LuaDialog(activity)
- updDlg.setTitle("Update Management")
- updDlg.setView(updLayout)
- updDlg.setNegativeButton("Close", function() updDlg.dismiss() end)
- updDlg.show()
- 
- Http.get(VERSION_URL, function(code, onlineVer)
- if code == 200 and onlineVer then
- onlineVer = tostring(onlineVer):match("^%s*(.-)%s*$")
- if onlineVer ~= CURRENT_VERSION then
- statusTitle.text = "New Update Available!"
- statusTitle.setTextColor(0xFF4CAF50)
- detailText.text = "Current: " .. CURRENT_VERSION .. "\nLatest: " .. onlineVer .. "\n\nNew features are ready for download."
- actionBtn.text = "Update Now"
- actionBtn.setEnabled(true)
- actionBtn.onClick = function()
- updDlg.dismiss()
- feedback("Downloading update...")
- startPluginUpdate() -- یہ وہ فنکشن ہے جو ہم نے پہلے بنایا تھا
- end
- feedback("New version found: " .. onlineVer)
- else
- statusTitle.text = "No Update Found"
- detailText.text = "You are already using the latest version (" .. CURRENT_VERSION .. ")."
- actionBtn.text = "Check Again"
- actionBtn.setEnabled(true)
- actionBtn.onClick = function()
- updDlg.dismiss()
- showAdvancedUpdateDialog()
- end
- feedback("You are up to date.")
- end
- else
- statusTitle.text = "Connection Failed"
- detailText.text = "Could not reach GitHub. Please check your internet connection."
- actionBtn.text = "Retry"
- actionBtn.setEnabled(true)
- actionBtn.onClick = function() updDlg.dismiss(); showAdvancedUpdateDialog() end
- feedback("Connection error.")
- end
- end)
-end
-
 function enhancedDownloadButtonClick()
  vibrate()
  if not finalPodcastPath and not lastGeneratedAudioPath then
@@ -4577,11 +4890,9 @@ function enhancedDownloadButtonClick()
  end 
  }).start()
 end
-
 function dip2px(dp)
  return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, activity.getResources().getDisplayMetrics())
 end
-
 function reopenDialogWithCurrentState()
  isDialogHidden = false
  if dlg and not dlg.isShowing() then
@@ -4641,7 +4952,6 @@ function reopenDialogWithCurrentState()
  end
  end
 end
-
 function updateVoiceSelector()
  if not voiceSelectorSpinner then return end
  local visibleVoices = {}
@@ -4668,7 +4978,6 @@ function updateVoiceSelector()
  voiceAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
  voiceSelectorSpinner.setAdapter(voiceAdapter)
 end
-
 function handlePlayButtonClick()
  vibrate()
  local audioPath = finalPodcastPath or lastGeneratedAudioPath
@@ -4677,7 +4986,6 @@ function handlePlayButtonClick()
  return
  end
  
-
  local function updatePlayButtonState(btnText)
  runOnUi(function()
  playButton.text = btnText
@@ -5043,7 +5351,6 @@ generateButton.onClick = function()
  stopAudio()
  stopTestAudio()
  
-
  local function resetGenerateUI()
  runOnUi(function()
  generateButton.setEnabled(true)
@@ -5092,12 +5399,12 @@ if lastGeneratedAudioPath and File(lastGeneratedAudioPath).exists() then
  playButton.setEnabled(true)
  end)
 end
-
 function updateUIModeOnLoad()
  updateUIMode(currentMode)
  updateVoiceSelector()
 end
 updateUIModeOnLoad()
+performAutoChecks()
 if not resumeGenerationIfNeeded() then
  if not isDialogHidden then
  dlg.show()
