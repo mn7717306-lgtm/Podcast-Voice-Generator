@@ -1,4 +1,4 @@
-version 0.1.1
+version 0.1.2
 This message is from Muhammad Nafees Khan.
 
 To all users currently utilizing our extension, your valuable feedback is crucial. We earnestly request you to share your insights, enabling us to continuously improve and refine the extension.
