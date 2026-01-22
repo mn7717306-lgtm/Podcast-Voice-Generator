@@ -1,5 +1,5 @@
-version 0.1
+version 0.1.5
 
-1. Fixed API connection issues.
-2. Added new professional voices.
-3. Faster audio processing.
+Number one, a professional player has the correct labeling of the buttons.
+Issue number two and response error have been resolved.
+Number three, the video that used to go silent while playing, has also been fixed, so whatever audio is made will play completely and will not go silent.
