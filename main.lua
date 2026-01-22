@@ -1,4251 +1,635 @@
-require "import"
-import "android.widget.*"
-import "android.view.*"
-import "android.content.*"
-import "android.net.Uri"
-import "android.text.*"
-import "cjson"
-import "android.media.MediaPlayer"
-import "java.util.*"
-import "android.os.*"
-import "java.io.*"
-import "android.media.MediaRecorder"
-import "android.util.TypedValue"
-import "android.util.Base64"
-import "java.lang.Byte"
-import "java.lang.Integer"
-import "java.lang.System"
-import "java.text.SimpleDateFormat"
-import "java.text.DateFormat"
-import "android.graphics.Typeface"
-import "android.graphics.Color"
-if Build.VERSION.SDK_INT >= 23 then
-import "android.media.PlaybackParams"
-end
-activity = this
-local UPDATE_SYSTEM_ENABLED = true
-local CURRENT_VERSION = "0.1"
-local GITHUB_REPO_URL = "https://github.com/mn7717306-lgtm/Podcast-Voice-Generator"
-local GITHUB_RAW_URL = "https://raw.githubusercontent.com/mn7717306-lgtm/Podcast-Voice-Generator/main/"
-local VERSION_URL = GITHUB_RAW_URL .. "version.txt"
-local UPDATE_URL = GITHUB_RAW_URL .. "update.txt"
-local MESSAGE_URL = GITHUB_RAW_URL .. "Message.txt"
-local LINK_URL = GITHUB_RAW_URL .. "Link.txt"
-local LICENSE_URL = GITHUB_RAW_URL .. "LICENSE"
-local PLUGIN_PATH = "/storage/emulated/0/解说/Plugins/Podcast Voice Generator/main.lua"
-local PLUGIN_DIR = "/storage/emulated/0/解说/Plugins/Podcast Voice Generator/"
-local UPDATE_PREFS = "UPDATE_CONFIG"
-local MESSAGE_PREFS = "MESSAGE_CONFIG"
-local LINK_PREFS = "LINK_CONFIG"
-local updateInProgress = false
-local lastUpdateCheckTime = 0
-local UPDATE_CHECK_INTERVAL = 24 * 60 * 60 * 1000
-local mainHandler = Handler(Looper.getMainLooper())
-local GEMINI_PREFS = "GEMINI_CONFIG"
-local PREFS_NAME = "VOICE_CONFIG"
-local MAX_CHARS = 50000
-local MAX_TOKENS = 12500
-local CHUNK_SIZE = 4000
-local audioPlayer = nil
-local finalPodcastPath = nil
-local audioParts = {}
-local testAudioPlayer = nil
-local configTestAudioPlayer = nil
-local activePlayers = {}
-local activeStreams = {}
-local activeFiles = {}
-local tutorialPlayer = nil
-local tutorialTimer = nil
-local isAudioAutoPlayEnabled = false
-local textEmotionModes = {
- "Default (Keep as is)",
- "Default Voice Emotion",
- "Random Emotion"
-}
-local emotionsFull = {
- "Default", "Happy", "Energetic", "Sad", "Crying", "Angry",
- "Furious", "Whisper", "Mysterious", "Spooky", "Ghostly",
- "Flat", "Robot", "News", "Radio", "Singing", "Poetic",
- "Storytelling", "Sarcastic", "Confused", "Shocked", "Scared",
- "Panicked", "Disgusted", "Hopeful", "Nostalgic", "Sympathetic",
- "Firm", "Military", "Fast", "Slow", "Nervous", "Sleepy",
- "Drunk", "Pleading", "Secretive", "Philosophical",
- "Custom", "Rap", "Pop", "Rock", "Jazz", "Blues", "Opera",
- "Country", "HipHop", "Electronic", "Reggae", "Classical",
- "Lullaby", "Fairy Tale", "Superhero", "Villain", "Alien",
- "Monster", "Cartoon", "Anime", "Gothic", "Romantic",
- "Comedic", "Horror", "SciFi", "Fantasy", "Adventure"
-}
-local voiceMapGemini = {
- ["Zephyr (Male, Bright)"]="Zephyr",
- ["Puck (Male, Fresh)"]="Puck",
- ["Charon (Male, Emotional)"]="Charon",
- ["Kore (Female, Firm)"]="Kore",
- ["Fenrir (Male, Excited)"]="Fenrir",
- ["Leda (Female, Youthful)"]="Leda",
- ["Orus (Male, Determined)"]="Orus",
- ["Aoede (Female, Comfortable)"]="Aoede",
- ["Callirrhoe (Female, Easygoing)"]="Callirrhoe",
- ["Autonoe (Female, Bright)"]="Autonoe",
- ["Enceladus (Male, Slightly Hoarse)"]="Enceladus",
- ["Iapetus (Male, Clear)"]="Iapetus",
- ["Umbriel (Female, Easygoing)"]="Umbriel",
- ["Algieba (Male, Smooth)"]="Algieba",
- ["Despina (Female, Smooth)"]="Despina",
- ["Erinome (Female, Clear)"]="Erinome",
- ["Algenib (Male, Hoarse Voice)"]="Algenib",
- ["Rasalgethi (Male, Emotional)"]="Rasalgethi",
- ["Laomedeia (Female, Fresh)"]="Laomedeia",
- ["Achernar (Male, Soft)"]="Achernar",
- ["Alnilam (Male, Firm)"]="Alnilam",
- ["Schedar (Female, Even)"]="Schedar",
- ["Gacrux (Male, Mature)"]="Gacrux",
- ["Pulcherrima (Female, Confident)"]="Pulcherrima",
- ["Achird (Male, Friendly)"]="Achird",
- ["Zubenelgenubi (Male, Simple)"]="Zubenelgenubi",
- ["Vindemiatrix (Female, Gentle)"]="Vindemiatrix",
- ["Sadachbia (Male, Lively)"]="Sadachbia",
- ["Sadaltager (Male, Knowledgeable)"]="Sadaltager",
- ["Sulafat (Female, Warm)"]="Sulafat"
-}
-local emotionMap = {
- ["Default"] = "[READ THIS TEXT EXACTLY AS WRITTEN]",
- ["Happy"] = "[READ WITH A JOYFUL TONE]",
- ["Energetic"] = "[READ WITH HIGH ENERGY]",
- ["Sad"] = "[READ WITH A SAD TONE]",
- ["Crying"] = "[READ WITH CRYING EMOTION]",
- ["Angry"] = "[READ WITH ANGRY TONE]",
- ["Furious"] = "[READ WITH EXTREME ANGER]",
- ["Whisper"] = "[READ IN WHISPER TONE]",
- ["Mysterious"] = "[READ WITH MYSTERIOUS TONE]",
- ["Spooky"] = "[READ WITH SPOOKY TONE]",
- ["Ghostly"] = "[READ WITH GHOSTLY TONE]",
- ["Flat"] = "[READ WITH FLAT MONOTONE]",
- ["Robot"] = "[READ WITH ROBOTIC VOICE]",
- ["News"] = "[READ WITH NEWS ANCHOR TONE]",
- ["Radio"] = "[READ WITH RADIO ANNOUNCER STYLE]",
- ["Singing"] = "[READ AS IF SINGING]",
- ["Poetic"] = "[READ WITH POETIC TONE]",
- ["Storytelling"] = "[READ WITH STORYTELLING TONE]",
- ["Sarcastic"] = "[READ WITH SARCASTIC TONE]",
- ["Confused"] = "[READ WITH CONFUSED TONE]",
- ["Shocked"] = "[READ WITH SHOCKED TONE]",
- ["Scared"] = "[READ WITH SCARED TONE]",
- ["Panicked"] = "[READ WITH PANICKED TONE]",
- ["Disgusted"] = "[READ WITH DISGUSTED TONE]",
- ["Hopeful"] = "[READ WITH HOPEFUL TONE]",
- ["Nostalgic"] = "[READ WITH NOSTALGIC TONE]",
- ["Sympathetic"] = "[READ WITH SYMPATHETIC TONE]",
- ["Firm"] = "[READ WITH FIRM TONE]",
- ["Military"] = "[READ WITH MILITARY TONE]",
- ["Fast"] = "[READ AT FAST PACE]",
- ["Slow"] = "[READ AT SLOW PACE]",
- ["Nervous"] = "[READ WITH NERVOUS TONE]",
- ["Sleepy"] = "[READ WITH SLEEPY TONE]",
- ["Drunk"] = "[READ WITH DRUNK TONE]",
- ["Pleading"] = "[READ WITH PLEADING TONE]",
- ["Secretive"] = "[READ WITH SECRETIVE TONE]",
- ["Philosophical"] = "[READ WITH PHILOSOPHICAL TONE]",
- ["Rap"] = "[READ WITH RAP STYLE]",
- ["Pop"] = "[READ WITH POP MUSIC STYLE]",
- ["Rock"] = "[READ WITH ROCK STYLE]",
- ["Jazz"] = "[READ WITH JAZZ STYLE]",
- ["Blues"] = "[READ WITH BLUES STYLE]",
- ["Opera"] = "[READ WITH OPERA STYLE]",
- ["Country"] = "[READ WITH COUNTRY STYLE]",
- ["HipHop"] = "[READ WITH HIPHOP STYLE]",
- ["Electronic"] = "[READ WITH ELECTRONIC STYLE]",
- ["Reggae"] = "[READ WITH REGGAE STYLE]",
- ["Classical"] = "[READ WITH CLASSICAL STYLE]",
- ["Lullaby"] = "[READ WITH LULLABY STYLE]",
- ["Fairy Tale"] = "[READ WITH FAIRY TALE STYLE]",
- ["Superhero"] = "[READ WITH SUPERHERO STYLE]",
- ["Villain"] = "[READ WITH VILLAIN STYLE]",
- ["Alien"] = "[READ WITH ALIEN STYLE]",
- ["Monster"] = "[READ WITH MONSTER STYLE]",
- ["Cartoon"] = "[READ WITH CARTOON STYLE]",
- ["Anime"] = "[READ WITH ANIME STYLE]",
- ["Gothic"] = "[READ WITH GOTHIC STYLE]",
- ["Romantic"] = "[READ WITH ROMANTIC STYLE]",
- ["Comedic"] = "[READ WITH COMEDIC STYLE]",
- ["Horror"] = "[READ WITH HORROR STYLE]",
- ["SciFi"] = "[READ WITH SCI-FI STYLE]",
- ["Fantasy"] = "[READ WITH FANTASY STYLE]",
- ["Adventure"] = "[READ WITH ADVENTURE STYLE]",
- ["Custom"] = "[CUSTOM EMOTION - USE PROMPT PROVIDED]"
-}
-local emotionExampleMap = {
- ["Default"] = "This is a sample text for testing voice generation.",
- ["Happy"] = "I'm so excited to share this wonderful news with everyone today!",
- ["Rap"] = "Check the mic, one two, this is how we do, dropping beats that are fresh and new.",
- ["Pop"] = "This melody will make your heart sing, it's the sound of everything.",
- ["Rock"] = "Turn up the volume, feel the beat, this rock and roll can't be beat!",
- ["Custom"] = "Enter your example sentence here..."
-}
-local formatOptions = {"wav", "mp3", "wma", "ogg", "aac"}
-local USER_AUDIO_DIR = "/storage/emulated/0/Audio/Podcast Generator"
-local TUTORIAL_AUDIO_PATH = "/storage/emulated/0/Download/How to use.mp3"
-local lastGeneratedAudioPath = nil
-local lastGeneratedAudioType = nil
-local modes = {
- "Single Voice",
- "Two Voices (Dialogue)",
- "Four Voices Podcast",
- "Six Voices Podcast"
-}
-local isGenerationActive = false
-local currentGenerationMode = nil
-local currentGenerationText = nil
-local currentGenerationProgress = 0
-local currentGenerationTotal = 0
-local currentGenerationLines = {}
-local currentGenerationChunks = {}
-local currentGenerationChunkIndex = 0
-local currentGenerationTotalChunks = 0
-local configNames = {"Host", "Guest 1", "Guest 2", "Guest 3", "Guest 4", "Guest 5"}
-local configVoices = {"Puck", "Callirrhoe", "Autonoe", "Kore", "Leda", "Zephyr"}
-local configSpeeds = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}
-local configPitches = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0}
-local configEmotions = {"Default", "Default", "Default", "Default", "Default", "Default"}
-local currentMode = 0
-local selectedEmotionSingle = "Default"
-local customEmotionPrompt = "Please read this sentence with a deep, warm voice."
-local textEmotionMode = "Default (Keep as is)"
-local API_PROVIDERS = {
- "Google Generative Language (Gemini)"
-}
-local API_ENDPOINTS = {
- ["Google Generative Language (Gemini)"] = function(apiKey)
- return string.format(
- "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=%s",
- apiKey)
- end
-}
-local DEFAULT_API_KEY = ""
-local SELECTED_API_PROVIDER = "Google Generative Language (Gemini)"
-local API_KEY = DEFAULT_API_KEY
-local voiceMap = voiceMapGemini
-function getUpdatePrefs()
- return activity.getSharedPreferences(UPDATE_PREFS, Context.MODE_PRIVATE)
-end
-function getMessagePrefs()
- return activity.getSharedPreferences(MESSAGE_PREFS, Context.MODE_PRIVATE)
-end
-function getLinkPrefs()
- return activity.getSharedPreferences(LINK_PREFS, Context.MODE_PRIVATE)
-end
-function saveLastUpdateCheckTime()
- local prefs = getUpdatePrefs()
- local editor = prefs.edit()
- editor.putLong("lastUpdateCheck", System.currentTimeMillis())
- editor.apply()
-end
-function getLastUpdateCheckTime()
- local prefs = getUpdatePrefs()
- return prefs.getLong("lastUpdateCheck", 0)
-end
-function saveLastVideoLink(link)
- local prefs = getLinkPrefs()
- local editor = prefs.edit()
- editor.putString("lastVideoLink", link)
- editor.apply()
-end
-function getLastVideoLink()
- local prefs = getLinkPrefs()
- return prefs.getString("lastVideoLink", "")
-end
-function saveMessageShownState(shown)
- local prefs = getMessagePrefs()
- local editor = prefs.edit()
- editor.putBoolean("messageShown", shown)
- editor.apply()
-end
-function getMessageShownState()
- local prefs = getMessagePrefs()
- return prefs.getBoolean("messageShown", false)
-end
-function saveMessageDontShowAgain(dontShow)
- local prefs = getMessagePrefs()
- local editor = prefs.edit()
- editor.putBoolean("dontShowAgain", dontShow)
- editor.apply()
-end
-function getMessageDontShowAgain()
- local prefs = getMessagePrefs()
- return prefs.getBoolean("dontShowAgain", false)
-end
-function saveVideoLinkShownState(shown)
- local prefs = getLinkPrefs()
- local editor = prefs.edit()
- editor.putBoolean("videoLinkShown", shown)
- editor.apply()
-end
-function getVideoLinkShownState()
- local prefs = getLinkPrefs()
- return prefs.getBoolean("videoLinkShown", false)
-end
-function getUsernamePrefs()
- return activity.getSharedPreferences("PodcastGeneratorPrefs", Context.MODE_PRIVATE)
-end
-function validateUsername(input)
- if not input or type(input) ~= "string" then return false end
- local len = utf8.len(input) or #input
- if len < 6 or len > 30 then return false end
- if not input:match("^[A-Za-z .]+$") then return false end
- if input:match("%s%s") then return false end
- if input:match("^%s") or input:match("%s$") then return false end
- return true
-end
-function saveUsername(username)
- if not validateUsername(username) then return false end
- local prefs = getUsernamePrefs()
- local editor = prefs.edit()
- editor.putString("username", username)
- editor.putBoolean("username_set", true)
- local success = editor.commit()
- return success
-end
-function loadUsername()
- local prefs = getUsernamePrefs()
- return prefs.getString("username", "")
-end
-function isUsernameSet()
- local prefs = getUsernamePrefs()
- return prefs.getBoolean("username_set", false)
-end
-function setupUsernameSystem()
- if isUsernameSet() then return end
- local usernameDialog = LuaDialog(activity)
- usernameDialog.setTitle("Welcome to Podcast Voice Generator")
- usernameDialog.setMessage("Please enter your username to continue.\n(Requirements: 6-30 letters, spaces or dots only)")
- local usernameInput = EditText(activity)
- usernameInput.setHint("Type your username here...")
- usernameInput.setContentDescription("Enter username, 6 to 30 characters")
- usernameDialog.setView(usernameInput)
- usernameDialog.setPositiveButton("Save & Start", function(dialog, which)
- local username = tostring(usernameInput.text)
- if validateUsername(username) then
- if saveUsername(username) then
- showInfoDialog("Success", "Welcome " .. username .. "! You can now use the extension.")
- end
- else
- showErrorDialog("Invalid Name! Please use 6-30 letters, spaces, or dots only.")
- setupUsernameSystem()
- end
- end)
- usernameDialog.setNegativeButton("Exit Plugin", function(dialog, which)
- dialog.dismiss()
- if service then
- service.stopSelf()
- end
- end)
- usernameDialog.setCancelable(false)
- usernameDialog.show()
-end
-function downloadFile(url, callback)
- if not UPDATE_SYSTEM_ENABLED then
- callback(nil, "Update system disabled")
- return
- end
- Http.get(url, function(code, content)
- if code == 200 then
- callback(content, nil)
- else
- callback(nil, "HTTP Error: " .. code)
- end
- end)
-end
-function checkForUpdate(manualCheck, onCompleteCallback)
- if not UPDATE_SYSTEM_ENABLED then
- if onCompleteCallback then onCompleteCallback(false, "Update system disabled") end
- return
- end
- if updateInProgress then
- if onCompleteCallback then onCompleteCallback(false, "Update already in progress") end
- return
- end
- updateInProgress = true
- if manualCheck then
- service.speak("Checking for updates, please wait...")
- end
- downloadFile(VERSION_URL, function(onlineVersion, errorMsg)
- if onlineVersion then
- onlineVersion = tostring(onlineVersion):match("^%s*(.-)%s*$")
- if onlineVersion and onlineVersion ~= CURRENT_VERSION then
- downloadFile(UPDATE_URL, function(updateDetails, updateError)
- updateInProgress = false
- if updateDetails then
- showUpdateDialog(onlineVersion, updateDetails, manualCheck)
- if onCompleteCallback then onCompleteCallback(true, "Update available: " .. onlineVersion) end
- else
- if manualCheck then
- showErrorDialog("Update details not available: " .. (updateError or "Unknown error"))
- end
- if onCompleteCallback then onCompleteCallback(false, "No update details") end
- end
- end)
- else
- updateInProgress = false
- if manualCheck then
- showInfoDialog("Update Check", "You have the latest version!\nCurrent: " .. CURRENT_VERSION)
- end
- if onCompleteCallback then onCompleteCallback(false, "Already up to date") end
- end
- else
- updateInProgress = false
- if manualCheck then
- showErrorDialog("Failed to check update: " .. (errorMsg or "Unknown error"))
- end
- if onCompleteCallback then onCompleteCallback(false, "Check failed: " .. (errorMsg or "Unknown")) end
- end
- end)
- if not manualCheck then
- saveLastUpdateCheckTime()
- end
-end
-function showUpdateDialog(newVersion, updateDetails, manualCheck)
- local scrollView = ScrollView(activity)
- local mainLayout = LinearLayout(activity)
- mainLayout.setOrientation(LinearLayout.VERTICAL)
- mainLayout.setPadding(dip2px(15), dip2px(15), dip2px(15), dip2px(15))
- local titleLabel = TextView(activity)
- titleLabel.text = "New Update Available!"
- titleLabel.textSize = 18
- titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
- titleLabel.setTextColor(0xFF2196F3)
- titleLabel.setFocusable(true)
- titleLabel.setGravity(Gravity.CENTER)
- mainLayout.addView(titleLabel)
- local versionLabel = TextView(activity)
- versionLabel.text = "Version: " .. newVersion
- versionLabel.textSize = 14
- versionLabel.setFocusable(true)
- versionLabel.setGravity(Gravity.CENTER)
- mainLayout.addView(versionLabel)
- local whatsNewLabel = TextView(activity)
- whatsNewLabel.text = "What's New in this update:"
- whatsNewLabel.textSize = 14
- whatsNewLabel.setFocusable(true)
- whatsNewLabel.setTypeface(Typeface.DEFAULT_BOLD)
- mainLayout.addView(whatsNewLabel)
- local updateTextView = TextView(activity)
- updateTextView.text = updateDetails
- updateTextView.textSize = 13
- updateTextView.setFocusable(true)
- updateTextView.setLineSpacing(dip2px(2), 1.2)
- mainLayout.addView(updateTextView)
- scrollView.addView(mainLayout)
- local updateDialog = LuaDialog(activity)
- updateDialog.setTitle("Update Notification")
- updateDialog.setView(scrollView)
- updateDialog.setPositiveButton("Update Now", function()
- vibrate()
- updateDialog.dismiss()
- performUpdate(newVersion)
- end)
- if manualCheck then
- updateDialog.setNegativeButton("Close", function()
- vibrate()
- updateDialog.dismiss()
- end)
- else
- updateDialog.setNegativeButton("Later", function()
- vibrate()
- updateDialog.dismiss()
- end)
- end
- updateDialog.show()
-end
-function performUpdate(newVersion)
- updateInProgress = true
- service.speak("Downloading update, please don't close the app...")
- local function downloadAndReplace()
- downloadFile(GITHUB_RAW_URL .. "main.lua", function(newContent, errorMsg)
- if newContent then
- local backupPath = PLUGIN_PATH .. ".backup"
- local status, err = pcall(function()
- local currentFile = io.open(PLUGIN_PATH, "r")
- if currentFile then
- local currentContent = currentFile:read("*a")
- currentFile:close()
- local backupFile = io.open(backupPath, "w")
- if backupFile then
- backupFile.write(currentContent)
- backupFile.close()
- end
- end
- local newFile = io.open(PLUGIN_PATH, "w")
- if newFile == nil then
- error("Cannot write to: " .. PLUGIN_PATH .. ". Check if path exists.")
- end
- newFile:write(newContent)
- newFile:close()
- end)
- if status then
- local bFile = File(backupPath)
- if bFile.exists() then bFile.delete() end
- runOnUi(function()
- local successDlg = LuaDialog(activity)
- successDlg.setTitle("Update Successful")
- successDlg.setMessage("Version " .. newVersion .. " has been installed. The plugin will now close to apply changes.")
- successDlg.setPositiveButton("OK", function(dialog)
- vibrate()
- dialog.dismiss()
- if service then
- service.stopSelf()
- end
- end)
- successDlg.setCancelable(false)
- successDlg.show()
- end)
- else
- runOnUi(function()
- showErrorDialog("Update Error: " .. tostring(err))
- end)
- end
- else
- runOnUi(function()
- showErrorDialog("Download failed: " .. (errorMsg or "Unknown error"))
- end)
- end
- updateInProgress = false
- end)
- end
- Thread(Runnable{
- run = downloadAndReplace
- }).start()
-end
-function checkServerMessage()
- if not UPDATE_SYSTEM_ENABLED then return end
- if getMessageDontShowAgain() then
- return
- end
- downloadFile(MESSAGE_URL, function(messageContent, errorMsg)
- if messageContent and #messageContent > 0 then
- runOnUi(function()
- showServerMessageDialog(messageContent)
- end)
- end
- end)
-end
-function showServerMessageDialog(messageContent)
- local scrollView = ScrollView(activity)
- local mainLayout = LinearLayout(activity)
- mainLayout.setOrientation(LinearLayout.VERTICAL)
- mainLayout.setPadding(dip2px(10), dip2px(10), dip2px(10), dip2px(10))
- local titleLabel = TextView(activity)
- titleLabel.text = "Server Message"
- titleLabel.textSize = 16
- titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
- titleLabel.setTextColor(0xFF2196F3)
- titleLabel.gravity = Gravity.CENTER
- local titleParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- titleParams.bottomMargin = dip2px(10)
- titleLabel.setLayoutParams(titleParams)
- mainLayout.addView(titleLabel)
- local messageTextView = TextView(activity)
- messageTextView.text = messageContent
- messageTextView.textSize = 12
- messageTextView.setTextColor(0xFF333333)
- messageTextView.setLineSpacing(dip2px(1), 1.1)
- messageTextView.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- mainLayout.addView(messageTextView)
- local spacer = View(activity)
- local spacerParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(15))
- spacer.setLayoutParams(spacerParams)
- mainLayout.addView(spacer)
- local checkLayout = LinearLayout(activity)
- checkLayout.setOrientation(LinearLayout.HORIZONTAL)
- checkLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local checkBox = CheckBox(activity)
- checkBox.text = "Don't show again"
- checkBox.textSize = 10
- checkBox.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- checkLayout.addView(checkBox)
- local filler = View(activity)
- filler.setLayoutParams(LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))
- checkLayout.addView(filler)
- mainLayout.addView(checkLayout)
- scrollView.addView(mainLayout)
- local messageDialog = LuaDialog(activity)
- messageDialog.setTitle("Important Message")
- messageDialog.setView(scrollView)
- messageDialog.setPositiveButton("OK", function()
- saveMessageDontShowAgain(checkBox.isChecked())
- messageDialog.dismiss()
- end)
- messageDialog.show()
- saveMessageShownState(true)
-end
-function checkVideoLinkNotification()
- if not UPDATE_SYSTEM_ENABLED then return end
- if getVideoLinkShownState() then
- return
- end
- downloadFile(LINK_URL, function(linkContent, errorMsg)
- if linkContent then
- local link, text = linkContent:match("^(.-)|(.+)$")
- if not link then
- link = linkContent:match("^(.-)%s*$")
- text = "New video available!"
- end
- local lastLink = getLastVideoLink()
- if link and link ~= lastLink then
- runOnUi(function()
- showVideoLinkDialog(link, text)
- end)
- saveLastVideoLink(link)
- saveVideoLinkShownState(true)
- end
- end
- end)
-end
-function showVideoLinkDialog(videoLink, messageText)
- local scrollView = ScrollView(activity)
- local mainLayout = LinearLayout(activity)
- mainLayout.setOrientation(LinearLayout.VERTICAL)
- mainLayout.setPadding(dip2px(10), dip2px(10), dip2px(10), dip2px(10))
- local titleLabel = TextView(activity)
- titleLabel.text = "New Video Uploaded!"
- titleLabel.textSize = 16
- titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
- titleLabel.setTextColor(0xFFFF9800)
- titleLabel.gravity = Gravity.CENTER
- local titleParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- titleParams.bottomMargin = dip2px(10)
- titleLabel.setLayoutParams(titleParams)
- mainLayout.addView(titleLabel)
- local messageTextView = TextView(activity)
- messageTextView.text = messageText or "A new video has been uploaded to our channel!"
- messageTextView.textSize = 12
- messageTextView.setTextColor(0xFF333333)
- messageTextView.setLineSpacing(dip2px(1), 1.1)
- messageTextView.setGravity(Gravity.CENTER)
- messageTextView.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- mainLayout.addView(messageTextView)
- local spacer = View(activity)
- local spacerParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(20))
- spacer.setLayoutParams(spacerParams)
- mainLayout.addView(spacer)
- scrollView.addView(mainLayout)
- local videoDialog = LuaDialog(activity)
- videoDialog.setTitle("Video Notification")
- videoDialog.setView(scrollView)
- videoDialog.setPositiveButton("Watch Now", function()
- videoDialog.dismiss()
- if dlg and dlg.isShowing() then
- dlg.dismiss()
- end
- local intent = Intent(Intent.ACTION_VIEW, Uri.parse(videoLink))
- intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
- activity.startActivity(intent)
- end)
- videoDialog.setNegativeButton("Close", function()
- videoDialog.dismiss()
- end)
- videoDialog.show()
-end
-function showLicenseDialog()
- downloadFile(LICENSE_URL, function(licenseContent, errorMsg)
- runOnUi(function()
- local scrollView = ScrollView(activity)
- local mainLayout = LinearLayout(activity)
- mainLayout.setOrientation(LinearLayout.VERTICAL)
- mainLayout.setPadding(dip2px(10), dip2px(10), dip2px(10), dip2px(10))
- local titleLabel = TextView(activity)
- titleLabel.text = "License Agreement"
- titleLabel.textSize = 16
- titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
- titleLabel.setTextColor(0xFF333333)
- titleLabel.gravity = Gravity.CENTER
- local titleParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- titleParams.bottomMargin = dip2px(10)
- titleLabel.setLayoutParams(titleParams)
- mainLayout.addView(titleLabel)
- local licenseTextView = TextView(activity)
- if licenseContent then
- licenseTextView.text = licenseContent
- else
- licenseTextView.text = "Unable to load license. Please check your internet connection.\n\nError: " .. (errorMsg or "Unknown")
- end
- licenseTextView.textSize = 10
- licenseTextView.setTextColor(0xFF555555)
- licenseTextView.setLineSpacing(dip2px(1), 1.0)
- licenseTextView.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- mainLayout.addView(licenseTextView)
- scrollView.addView(mainLayout)
- local licenseDialog = LuaDialog(activity)
- licenseDialog.setTitle("Licenses and Agreements")
- licenseDialog.setView(scrollView)
- licenseDialog.setPositiveButton("Close", nil)
- licenseDialog.show()
- end)
- end)
-end
-function performAutoChecks()
- if not UPDATE_SYSTEM_ENABLED then return end
- local currentTime = System.currentTimeMillis()
- local lastCheck = getLastUpdateCheckTime()
- if currentTime - lastCheck > UPDATE_CHECK_INTERVAL then
- checkForUpdate(false, function(updateAvailable, message)
- if updateAvailable then
- end
- end)
- end
- checkServerMessage()
- checkVideoLinkNotification()
-end
-function runOnUi(callback)
- mainHandler.post(Runnable{ run = callback })
-end
-function vibrate()
- local vibrator = activity.getSystemService(Context.VIBRATOR_SERVICE)
- if vibrator and vibrator.hasVibrator() then
- pcall(function() vibrator.vibrate(35) end)
- end
-end
-function estimateTokens(text)
- if not text then return 0 end
- return math.ceil(string.len(text) / 4)
-end
-function cleanupAllResources()
- for name, player in pairs(activePlayers) do
- if player then
- pcall(function()
- local isPlaying = false
- pcall(function()
- isPlaying = player.isPlaying()
- end)
- if isPlaying then
- player.stop()
- end
- player.release()
- activePlayers[name] = nil
- end)
- end
- end
- for name, stream in pairs(activeStreams) do
- pcall(function()
- if stream.close then
- stream.close()
- end
- activeStreams[name] = nil
- end)
- end
- for name, file in pairs(activeFiles) do
- pcall(function()
- if file.close then
- file.close()
- end
- activeFiles[name] = nil
- end)
- end
- audioParts = {}
- audioPlayer = nil
- testAudioPlayer = nil
- configTestAudioPlayer = nil
- finalPodcastPath = nil
- lastGeneratedAudioPath = nil
- isAudioAutoPlayEnabled = false
- if tutorialPlayer then
- pcall(function()
- if tutorialPlayer.isPlaying() then
- tutorialPlayer.stop()
- end
- tutorialPlayer.release()
- end)
- tutorialPlayer = nil
- end
- if tutorialTimer then
- pcall(function()
- tutorialTimer.cancel()
- end)
- tutorialTimer = nil
- end
- local cacheDir = activity.getCacheDir()
- if cacheDir then
- Thread(Runnable{
- run = function()
- local fileList = cacheDir.listFiles()
- if fileList then
- for i=0, #fileList-1 do
- local file = fileList[i]
- if file and file.getName then
- local fileName = file.getName()
- if fileName:match(".*_tts_.*%.mp3$") or fileName:match(".*podcast.*%.mp3$") then
- pcall(function() file.delete() end)
- end
- end
- end
- end
- end
- }).start()
- end
- System.gc()
- System.runFinalization()
-end
-function stopAudio()
- if audioPlayer then
- pcall(function()
- if audioPlayer.isPlaying() then
- audioPlayer.stop()
- end
- audioPlayer.release()
- end)
- audioPlayer = nil
- activePlayers["main"] = nil
- end
- if playButton then
- playButton.text = "Listen to Podcast"
- playButton.setEnabled(true)
- end
-end
-function stopTestAudio()
- if testAudioPlayer then
- pcall(function()
- if testAudioPlayer.isPlaying() then
- testAudioPlayer.stop()
- end
- testAudioPlayer.release()
- end)
- testAudioPlayer = nil
- activePlayers["test"] = nil
- end
-end
-function stopConfigTestAudio()
- if configTestAudioPlayer then
- pcall(function()
- if configTestAudioPlayer.isPlaying() then
- configTestAudioPlayer.stop()
- end
- configTestAudioPlayer.release()
- end)
- configTestAudioPlayer = nil
- activePlayers["config"] = nil
- end
-end
-function stopTutorialAudio()
- if tutorialPlayer then
- pcall(function()
- if tutorialPlayer.isPlaying() then
- tutorialPlayer.stop()
- end
- tutorialPlayer.release()
- end)
- tutorialPlayer = nil
- end
- if tutorialTimer then
- pcall(function()
- tutorialTimer.cancel()
- end)
- tutorialTimer = nil
- end
-end
-function showErrorDialog(msg)
- runOnUi(function()
- LuaDialog(activity)
- .setTitle("Error")
- .setMessage(tostring(msg))
- .setPositiveButton("OK", nil)
- .show()
- if generateButton then
- generateButton.text = "Generate Audio"
- generateButton.setEnabled(true)
- audioParts = {}
- finalPodcastPath = nil
- end
- if btnTestSpeak then btnTestSpeak.text = "Test Listen" end
- if podcastProgressBar then podcastProgressBar.setVisibility(View.GONE) end
- end)
-end
-function showInfoDialog(title, msg)
- runOnUi(function()
- LuaDialog(activity)
- .setTitle(title)
- .setMessage(tostring(msg))
- .setPositiveButton("OK", nil)
- .show()
- end)
-end
-function updateCharCounter()
- runOnUi(function()
- local text = chatInput.text or ""
- local charCount = string.len(text)
- local tokenEstimate = estimateTokens(text)
- local color = 0xFF000000
- local tokenColor = 0xFF0000FF
- if charCount > MAX_CHARS then
- color = 0xFFFF0000
- tokenColor = 0xFFFF0000
- chatInput.text = text:sub(1, MAX_CHARS)
- charCount = MAX_CHARS
- tokenEstimate = estimateTokens(chatInput.text)
- elseif tokenEstimate > MAX_TOKENS then
- tokenColor = 0xFFFFA500
- end
- charCounter.text = string.format("Characters: %d/%d | Tokens: %d/%d",
- charCount, MAX_CHARS, tokenEstimate, MAX_TOKENS)
- charCounter.setTextColor(color)
- end)
-end
-function getPrefs()
- return activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-end
-function getGeminiPrefs()
- return activity.getSharedPreferences(GEMINI_PREFS, Context.MODE_PRIVATE)
-end
-function saveGeminiConfig()
- local prefs = getGeminiPrefs()
- local editor = prefs.edit()
- editor.putString("API_KEY", API_KEY)
- editor.putString("API_PROVIDER", SELECTED_API_PROVIDER)
- editor.apply()
-end
-function loadGeminiConfig()
- local prefs = getGeminiPrefs()
- API_KEY = prefs.getString("API_KEY", DEFAULT_API_KEY)
- SELECTED_API_PROVIDER = prefs.getString("API_PROVIDER", "Google Generative Language (Gemini)")
-end
-function saveConfig()
- local prefs = getPrefs()
- local editor = prefs.edit()
- editor.putInt("mode", currentMode)
- for i = 1, 6 do
- editor.putString("name" .. i, configNames[i])
- editor.putString("voice" .. i, configVoices[i])
- editor.putFloat("speed" .. i, configSpeeds[i])
- editor.putFloat("pitch" .. i, configPitches[i])
- editor.putString("emotion" .. i, configEmotions[i])
- end
- editor.putString("emotionSingle", selectedEmotionSingle)
- editor.putString("textEmotionMode", textEmotionMode)
- editor.putString("customEmotion", customEmotionPrompt)
- if formatSpinner then
- editor.putString("fileFormat", formatSpinner.getSelectedItem() or "mp3")
- end
- editor.apply()
-end
-function loadConfig()
- loadGeminiConfig()
- local prefs = getPrefs()
- currentMode = prefs.getInt("mode", 0)
- textEmotionMode = prefs.getString("textEmotionMode", "Default (Keep as is)")
- customEmotionPrompt = prefs.getString("customEmotion", "Please read this sentence with a deep, warm voice.")
- selectedEmotionSingle = prefs.getString("emotionSingle", "Default")
- local fileFormat = prefs.getString("fileFormat", "mp3")
- for i = 1, 6 do
- configNames[i] = prefs.getString("name" .. i, configNames[i])
- configVoices[i] = prefs.getString("voice" .. i, configVoices[i])
- configSpeeds[i] = prefs.getFloat("speed" .. i, 1.0)
- configPitches[i] = prefs.getFloat("pitch" .. i, 0.0)
- configEmotions[i] = prefs.getString("emotion" .. i, "Default")
- end
- runOnUi(function()
- modeSpinner.setSelection(currentMode)
- local function setSpinner(spinner, name, list)
- if not spinner then return end
- for i=1, #list do
- if list[i] == name then
- spinner.setSelection(i - 1)
- return
- end
- end
- end
- if formatSpinner then
- setSpinner(formatSpinner, fileFormat, formatOptions)
- end
- if textEmotionSpinner then
- setSpinner(textEmotionSpinner, textEmotionMode, textEmotionModes)
- end
- updateUIMode(currentMode)
- updateCharCounter()
- end)
-end
-function writeWavHeader(outStream, totalAudioLen, longSampleRate, channels, byteRate)
- local totalDataLen = totalAudioLen
- local totalSize = totalDataLen + 36
- local bitsPerSample = 16
- local blockAlign = (channels * bitsPerSample) / 8
- local calculatedByteRate = longSampleRate * channels * (bitsPerSample / 8)
- local function getBytes(val)
- return {
- val & 0xff,
- (val >> 8) & 0xff,
- (val >> 16) & 0xff,
- (val >> 24) & 0xff
- }
- end
- local totalSizeB = getBytes(totalSize)
- local sampleRateB = getBytes(longSampleRate)
- local byteRateB = getBytes(calculatedByteRate)
- local dataLenB = getBytes(totalDataLen)
- local header = {
- 0x52, 0x49, 0x46, 0x46,
- totalSizeB[1], totalSizeB[2], totalSizeB[3], totalSizeB[4],
- 0x57, 0x41, 0x56, 0x45,
- 0x66, 0x6d, 0x74, 0x20,
- 0x10, 0x00, 0x00, 0x00,
- 0x01, 0x00,
- channels & 0xff, (channels >> 8) & 0xff,
- sampleRateB[1], sampleRateB[2], sampleRateB[3], sampleRateB[4],
- byteRateB[1], byteRateB[2], byteRateB[3], byteRateB[4],
- blockAlign & 0xff, (blockAlign >> 8) & 0xff,
- bitsPerSample & 0xff, (bitsPerSample >> 8) & 0xff,
- 0x64, 0x61, 0x74, 0x61,
- dataLenB[1], dataLenB[2], dataLenB[3], dataLenB[4]
- }
- for i = 1, #header do
- outStream.write(header[i])
- end
-end
-function mergeAndSavePodcast()
- local status, err = pcall(function()
- if not audioParts or #audioParts == 0 then
- error("No audio parts to merge.")
- end
- import "java.io.FileOutputStream"
- import "java.io.File"
- local path = activity.getCacheDir().toString() .. "/gemini_podcast_final.wav"
- local file = File(path)
- if file.exists() then
- file.delete()
- Thread.sleep(100)
- end
- local os = FileOutputStream(file)
- local totalAudioLen = 0
- for i = 1, #audioParts do
- if audioParts[i] then
- totalAudioLen = totalAudioLen + #audioParts[i]
- end
- end
- writeWavHeader(os, totalAudioLen, 24000, 1, 48000)
- for i = 1, #audioParts do
- if audioParts[i] then
- os.write(audioParts[i])
- if i % 5 == 0 then os.flush() end
- end
- end
- os.flush()
- os.getFD().sync()
- os.close()
- audioParts = {}
- collectgarbage("collect")
- return path
- end)
- if status then
- finalPodcastPath = err
- lastGeneratedAudioPath = finalPodcastPath
- lastGeneratedAudioType = "podcast"
- runOnUi(function()
- resultText.text = "Success! Podcast merge complete."
- if playButton then
- playButton.setVisibility(View.VISIBLE)
- playButton.text = "Listen"
- playButton.setEnabled(true)
- end
- if downloadButton then downloadButton.setVisibility(View.VISIBLE) end
- if formatSpinner then formatSpinner.setVisibility(View.VISIBLE) end
- if generateButton then
- generateButton.text = "Generate Audio"
- generateButton.setEnabled(true)
- end
- if podcastProgressBar then podcastProgressBar.setVisibility(View.GONE) end
- if audioPlayer then
- if audioPlayer.isPlaying() then audioPlayer.stop() end
- audioPlayer.reset()
- audioPlayer.release()
- audioPlayer = nil
- end
- audioPlayer = MediaPlayer()
- activePlayers["main"] = audioPlayer
- audioPlayer.setDataSource(finalPodcastPath)
- audioPlayer.prepare()
- end)
- else
- runOnUi(function()
- if generateButton then
- generateButton.text = "Generate Audio"
- generateButton.setEnabled(true)
- end
- if podcastProgressBar then podcastProgressBar.setVisibility(View.GONE) end
- showErrorDialog("Merge Error: " .. tostring(err))
- end)
- end
-end
-function getSystemPrompt(emotionName, customPrompt, currentSpeed, currentPitch)
- local emotionText = ""
- if emotionName == "Custom" then
- local p = customPrompt or customEmotionPrompt
- emotionText = #p > 0 and string.format("[%s]", p) or "[READ THIS TEXT]"
- else
- emotionText = emotionMap[emotionName] or "[READ THIS TEXT]"
- end
- local speedPrompt = ""
- if currentSpeed and currentSpeed ~= 1.0 then
- if currentSpeed < 0.5 then
- speedPrompt = string.format(" [READ AT EXTREMELY SLOW PACE (%.1fx).]", currentSpeed)
- elseif currentSpeed < 0.8 then
- speedPrompt = string.format(" [READ AT SLOW PACE (%.1fx).]", currentSpeed)
- elseif currentSpeed < 1.0 then
- speedPrompt = string.format(" [READ AT SLIGHTLY SLOWER PACE (%.1fx).]", currentSpeed)
- elseif currentSpeed > 2.0 then
- speedPrompt = string.format(" [READ AT EXTREMELY FAST PACE (%.1fx).]", currentSpeed)
- elseif currentSpeed > 1.5 then
- speedPrompt = string.format(" [READ AT FAST PACE (%.1fx).]", currentSpeed)
- elseif currentSpeed > 1.0 then
- speedPrompt = string.format(" [READ AT SLIGHTLY FASTER PACE (%.1fx).]", currentSpeed)
- end
- end
- local pitchPrompt = ""
- if currentPitch and currentPitch ~= 0.0 then
- if currentPitch < -1.5 then
- pitchPrompt = string.format(" [USE EXTREMELY DEEP VOICE (%.1f).]", currentPitch)
- elseif currentPitch < -0.8 then
- pitchPrompt = string.format(" [USE VERY DEEP VOICE (%.1f).]", currentPitch)
- elseif currentPitch < 0.0 then
- pitchPrompt = string.format(" [USE DEEPER VOICE (%.1f).]", currentPitch)
- elseif currentPitch > 1.5 then
- pitchPrompt = string.format(" [USE EXTREMELY HIGH VOICE (%.1f).]", currentPitch)
- elseif currentPitch > 0.8 then
- pitchPrompt = string.format(" [USE VERY HIGH VOICE (%.1f).]", currentPitch)
- else
- pitchPrompt = string.format(" [USE HIGHER VOICE (%.1f).]", currentPitch)
- end
- end
- local combinedPrompt = emotionText .. pitchPrompt .. speedPrompt
- return combinedPrompt
-end
-function splitTextIntoChunks(text, chunkSize)
- if not text or #text == 0 then return {} end
- text = text:gsub("\r\n", "\n"):gsub("\r", "\n")
- if #text <= chunkSize then return {text} end
- local chunks = {}
- local lines = {}
- for line in text:gmatch("[^\n]+") do
- table.insert(lines, line)
- end
- local currentChunk = ""
- local currentLength = 0
- for _, line in ipairs(lines) do
- local lineLength = #line
- if currentLength + lineLength + 1 <= chunkSize then
- if currentLength > 0 then
- currentChunk = currentChunk .. "\n" .. line
- currentLength = currentLength + lineLength + 1
- else
- currentChunk = line
- currentLength = lineLength
- end
- else
- if #currentChunk > 0 then
- table.insert(chunks, currentChunk)
- end
- if lineLength <= chunkSize then
- currentChunk = line
- currentLength = lineLength
- else
- local longLineChunks = {}
- local tempLine = line
- while #tempLine > 0 do
- local chunk = tempLine:sub(1, chunkSize)
- local lastBoundary = nil
- local lastSpace = chunk:match("^.*() ")
- local lastPunct = chunk:match("^.*()[%.,;!?蹟貙貨責]")
- if lastSpace or lastPunct then
- if lastSpace and lastPunct then
- lastBoundary = math.max(lastSpace, lastPunct)
- elseif lastSpace then
- lastBoundary = lastSpace
- else
- lastBoundary = lastPunct
- end
- end
- if lastBoundary and #chunk == chunkSize then
- chunk = chunk:sub(1, lastBoundary - 1)
- end
- table.insert(longLineChunks, chunk)
- tempLine = tempLine:sub(#chunk + 1):gsub("^ +", "")
- end
- for i = 1, #longLineChunks do
- if i == 1 and currentLength == 0 then
- currentChunk = longLineChunks[i]
- currentLength = #longLineChunks[i]
- else
- if currentLength > 0 then
- table.insert(chunks, currentChunk)
- end
- currentChunk = longLineChunks[i]
- currentLength = #longLineChunks[i]
- end
- end
- end
- end
- end
- if #currentChunk > 0 then
- table.insert(chunks, currentChunk)
- end
- if #chunks == 0 and #text > 0 then
- table.insert(chunks, text:sub(1, chunkSize))
- end
- return chunks
-end
-function getCurrentVoiceMap()
- return voiceMapGemini
-end
-function updateVoicesBasedOnProvider()
- local currentVoiceMap = getCurrentVoiceMap()
- local voiceNames = {}
- for name, _ in pairs(currentVoiceMap) do
- table.insert(voiceNames, name)
- end
- table.sort(voiceNames)
- local defaultVoiceID = "Puck"
- for i = 1, 6 do
- if i <= #voiceNames then
- local displayName = voiceNames[i]
- local voiceID = currentVoiceMap[displayName]
- configNames[i] = displayName
- configVoices[i] = voiceID
- else
- configNames[i] = "Puck"
- configVoices[i] = defaultVoiceID
- end
- end
- saveConfig()
- if type(updateVoiceSelector) == "function" then
- updateVoiceSelector()
- end
-end
-function stringToBytes(str)
- local bytes = {}
- for i = 1, #str do
- bytes[i] = string.byte(str:sub(i, i))
- end
- return bytes
-end
-function cleanTextForAudio(text)
- if not text then return "" end
- local cleaned = text
- cleaned = cleaned:gsub("https?://[%w-_%.%?%:%%%#%=%/]+", "")
- cleaned = cleaned:gsub("www%.[%w-_%.%?%:%%%#%=%/]+", "")
- cleaned = cleaned:gsub("%b<>", "")
- cleaned = cleaned:gsub("\\", "\\\\")
- cleaned = cleaned:gsub('"', '\\"')
- cleaned = cleaned:gsub("[\r\n%c]+", " ")
- cleaned = cleaned:gsub("%s%s+", " ")
- cleaned = cleaned:gsub("^%s+", "")
- cleaned = cleaned:gsub("%s+$", "")
- if #cleaned == 0 then
- cleaned = "Audio content"
- end
- return cleaned
-end
-function processLongTextInChunks(text, voiceName, emotion, speed, pitch, isSaving)
- stopTestAudio()
- stopAudio()
- if not text or #text == 0 then
- showErrorDialog("Text is empty.")
- return
- end
- local cleanedText = cleanTextForAudio(text)
- cleanedText = cleanedText:gsub("\r\n", " ")
- cleanedText = cleanedText:gsub("\n", " ")
- cleanedText = cleanedText:gsub("\r", " ")
- cleanedText = cleanedText:gsub("%s+", " ")
- cleanedText = cleanedText:gsub("^%s+", "")
- cleanedText = cleanedText:gsub("%s+$", "")
- local chunks = splitTextIntoChunks(cleanedText, CHUNK_SIZE)
- if #chunks == 0 then
- showErrorDialog("Could not split text into chunks.")
- runOnUi(function()
- if generateButton then
- generateButton.text = "Generate Audio"
- generateButton.setEnabled(true)
- end
- if resultText then resultText.text = "Error: Split failed" end
- end)
- return
- end
- isGenerationActive = true
- currentGenerationMode = 0
- currentGenerationText = text
- currentGenerationChunks = chunks
- currentGenerationChunkIndex = 0
- currentGenerationTotalChunks = #chunks
- audioParts = {}
- finalPodcastPath = nil
- runOnUi(function()
- generateButton.text = string.format("Processing (0/%d)", #chunks)
- generateButton.setEnabled(false)
- if podcastProgressBar then
- podcastProgressBar.setVisibility(View.VISIBLE)
- podcastProgressBar.setProgress(0)
- podcastProgressBar.setMax(#chunks)
- end
- if playButton then playButton.setVisibility(View.GONE) end
- if downloadButton then downloadButton.setVisibility(View.GONE) end
- if formatSpinner then formatSpinner.setVisibility(View.GONE) end
- if resultText then
- resultText.text = string.format("Starting processing... (0/%d)", #chunks)
- end
- end)
- processNextChunk(chunks, voiceName, emotion, speed, pitch, isSaving, 1, #chunks)
-end
-function processNextChunk(chunks, voiceName, emotion, speed, pitch, isSaving, index, totalChunks)
- if index > totalChunks then
- mergeAndSavePodcast()
- return
- end
- currentGenerationChunkIndex = index
- local currentChunk = chunks[index]
- runOnUi(function()
- if generateButton then
- generateButton.text = string.format("Processing (%d/%d)", index, totalChunks)
- end
- if resultText then
- resultText.text = string.format("Processing chunk %d/%d\nCharacters: %d",
- index, totalChunks, #currentChunk)
- end
- if podcastProgressBar then
- podcastProgressBar.setProgress(math.floor(index / totalChunks * 100))
- end
- end)
- local function handleChunkError(errorMsg)
- isGenerationActive = false
- runOnUi(function()
- if generateButton then
- generateButton.text = "Generate Audio"
- generateButton.setEnabled(true)
- end
- if resultText then
- resultText.text = "Failed: " .. errorMsg
- end
- if podcastProgressBar then
- podcastProgressBar.setVisibility(View.GONE)
- end
- end)
- showErrorDialog(errorMsg)
- end
- local systemPrompt = getSystemPrompt(emotion, nil, speed, pitch)
- local inputText = currentChunk
- local speechConfig = {
- voiceConfig = { prebuiltVoiceConfig = { voiceName = voiceName } }
- }
- local requestBody
- local apiUrl = API_ENDPOINTS[SELECTED_API_PROVIDER](API_KEY)
- requestBody = {
- contents = {
- { parts = {{ text = inputText }} }
- },
- generationConfig = {
- responseModalities = {"AUDIO"},
- speechConfig = speechConfig,
- temperature = 0.1,
- maxOutputTokens = 5000
- }
- }
- local headers = HashMap()
- headers.put("Content-Type", "application/json")
- headers.put("x-goog-api-client", "gl-kotlin/2.1.0-ai fire/16.5.0")
- Http.post(apiUrl, cjson.encode(requestBody), headers, function(code, content)
- if code == 200 then
- local status, data = pcall(cjson.decode, content)
- if status and data and data.candidates and #data.candidates > 0 and data.candidates[1] and data.candidates[1].content and data.candidates[1].content.parts then
- local base64Audio = nil
- for i=1, #data.candidates[1].content.parts do
- if data.candidates[1].content.parts[i].inlineData then
- base64Audio = data.candidates[1].content.parts[i].inlineData.data
- break
- end
- end
- if base64Audio then
- local audioBytes = Base64.decode(base64Audio, Base64.NO_WRAP)
- table.insert(audioParts, audioBytes)
- processNextChunk(chunks, voiceName, emotion, speed, pitch, isSaving, index + 1, totalChunks)
- else
- handleChunkError("Audio error at chunk " .. index .. ": No audio data")
- end
- else
- handleChunkError("JSON error at chunk " .. index)
- end
- else
- handleChunkError("HTTP error at chunk " .. index .. ": " .. code)
- end
- end)
-end
-function testSpeak(text, voiceName, currentEmotion, currentSpeed, currentPitch, isSaving, isConfigTest)
- if isConfigTest then
- stopConfigTestAudio()
- else
- stopTestAudio()
- end
- if not text or #text == 0 then
- showErrorDialog("Text is empty.")
- return
- end
- if #text > CHUNK_SIZE then
- processLongTextInChunks(text, voiceName, currentEmotion, currentSpeed, currentPitch, isSaving)
- return
- end
- local cleanedText = cleanTextForAudio(text)
- local systemPrompt = getSystemPrompt(currentEmotion, nil, currentSpeed, currentPitch)
- local inputText = cleanedText
- local voiceToUse = voiceName
- local currentVoiceMap = getCurrentVoiceMap()
- local isValidVoice = false
- for _, v in pairs(currentVoiceMap) do
- if v == voiceName then
- isValidVoice = true
- break
- end
- end
- if not isValidVoice then
- voiceToUse = "Puck"
- end
- local speechConfig = { voiceConfig = { prebuiltVoiceConfig = { voiceName = voiceToUse } } }
- local requestBody = {
- contents = { { parts = { { text = inputText } } } },
- generationConfig = {
- responseModalities = { "AUDIO" },
- speechConfig = speechConfig,
- temperature = 0.5,
- maxOutputTokens = 8000
- },
- safetySettings = {
- { category = "HARM_CATEGORY_HARASSMENT", threshold = "BLOCK_NONE" },
- { category = "HARM_CATEGORY_HATE_SPEECH", threshold = "BLOCK_NONE" },
- { category = "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold = "BLOCK_NONE" },
- { category = "HARM_CATEGORY_DANGEROUS_CONTENT", threshold = "BLOCK_NONE" }
- }
- }
- local headers = HashMap()
- headers.put("Content-Type", "application/json")
- headers.put("x-goog-api-client", "gl-kotlin/2.1.0-ai fire/16.5.0")
- Http.post(API_ENDPOINTS[SELECTED_API_PROVIDER](API_KEY), cjson.encode(requestBody), headers, function(code, content)
- runOnUi(function()
- if not isConfigTest then
- if generateButton then
- generateButton.text = "Generate Audio"
- generateButton.setEnabled(true)
- end
- if resultText then resultText.text = "Ready" end
- if btnTestSpeak then
- btnTestSpeak.text = "Test Listen"
- end
- else
- if btnConfigTestSpeak then
- btnConfigTestSpeak.text = "Test Listen"
- end
- end
- end)
- if code == 200 then
- local status, data = pcall(cjson.decode, content)
- if status and data and data.candidates and #data.candidates > 0 and data.candidates[1].content and data.candidates[1].content.parts then
- local base64Audio = nil
- for i = 1, #data.candidates[1].content.parts do
- if data.candidates[1].content.parts[i].inlineData then
- base64Audio = data.candidates[1].content.parts[i].inlineData.data
- break
- end
- end
- if base64Audio then
- import "android.util.Base64"
- local audioBytes = Base64.decode(base64Audio, Base64.NO_WRAP)
- local tempPath = activity.getCacheDir().toString() .. (isConfigTest and "/config_tts_audio.wav" or "/single_tts_audio.wav")
- local file = File(tempPath)
- local os = FileOutputStream(file)
- activeFiles["temp_audio"] = os
- writeWavHeader(os, #audioBytes, 24000, 1, 48000)
- os.write(audioBytes)
- os.flush()
- os.close()
- activeFiles["temp_audio"] = nil
- runOnUi(function()
- if isConfigTest then
- stopConfigTestAudio()
- configTestAudioPlayer = MediaPlayer()
- activePlayers["config"] = configTestAudioPlayer
- local success, errorMsg = pcall(function()
- configTestAudioPlayer.setDataSource(tempPath)
- configTestAudioPlayer.prepare()
- configTestAudioPlayer.start()
- end)
- if success then
- if btnConfigTestSpeak then
- btnConfigTestSpeak.text = "Stop"
- end
- else
- if btnConfigTestSpeak then
- btnConfigTestSpeak.text = "Test Listen"
- end
- showErrorDialog("Config test error: " .. errorMsg)
- end
- else
- stopTestAudio()
- finalPodcastPath = tempPath
- lastGeneratedAudioPath = tempPath
- lastGeneratedAudioType = "single"
- if resultText then
- resultText.text = isSaving and "Complete! Single audio has been created." or "Playing test audio."
- end
- if playButton then
- playButton.setVisibility(View.VISIBLE)
- playButton.text = "Listen"
- playButton.setEnabled(true)
- end
- if downloadButton then
- downloadButton.setVisibility(View.VISIBLE)
- end
- if formatSpinner then
- formatSpinner.setVisibility(View.VISIBLE)
- end
- testAudioPlayer = MediaPlayer()
- activePlayers["test"] = testAudioPlayer
- local success, errorMsg = pcall(function()
- testAudioPlayer.setDataSource(tempPath)
- testAudioPlayer.prepare()
- if not isSaving then
- testAudioPlayer.start()
- if playButton then
- playButton.text = "Stop"
- end
- isAudioAutoPlayEnabled = true
- else
- isAudioAutoPlayEnabled = false
- end
- end)
- if not success then
- if playButton then
- playButton.setEnabled(false)
- end
- showErrorDialog("Audio error: " .. errorMsg)
- end
- testAudioPlayer.setOnCompletionListener(MediaPlayer.OnCompletionListener{
- onCompletion = function(mp)
- runOnUi(function()
- if btnTestSpeak then
- btnTestSpeak.text = "Test Listen"
- end
- if playButton then
- playButton.text = "Listen"
- playButton.setEnabled(true)
- end
- isAudioAutoPlayEnabled = false
- end)
- end
- })
- end
- end)
- else
- showErrorDialog("Audio error: No audio data received.")
- end
- else
- runOnUi(function() if resultText then resultText.text = "JSON Error" end end)
- showErrorDialog("JSON error: Invalid response. Content: " .. content)
- end
- else
- runOnUi(function() if resultText then resultText.text = "HTTP Error " .. code end end)
- showErrorDialog("HTTP error " .. code .. ": " .. (content or "No response"))
- end
- end)
-end
-function processMultiVoicePodcast()
- local rawText = scriptInput.text
- if #rawText == 0 then
- showErrorDialog("Empty script.")
- return
- end
- local processedText = processTextForEmotion(rawText)
- local lines = {}
- local totalCharCount = 0
- for line in processedText:gmatch("[^\r\n]+") do
- local speaker, content = line:match("^(.-):%s*(.+)")
- if speaker and content then
- speaker = speaker:match("^%s*(.-)%s*$")
- content = content:match("^%s*(.-)%s*$")
- if #content > 0 then
- local cleanContent = content:gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("[\r\n]+", " ")
- table.insert(lines, {speaker = speaker, text = cleanContent})
- totalCharCount = totalCharCount + string.len(cleanContent)
- end
- end
- end
- if #lines == 0 then
- showErrorDialog("Empty script or incorrect format. Use 'Name: Message' format.")
- return
- end
- isGenerationActive = true
- currentGenerationMode = currentMode
- currentGenerationText = rawText
- currentGenerationProgress = 0
- currentGenerationTotal = #lines
- currentGenerationLines = lines
- audioParts = {}
- finalPodcastPath = nil
- runOnUi(function()
- if generateButton then
- generateButton.setEnabled(false)
- generateButton.text = "Processing..."
- end
- if resultText then
- resultText.text = "Starting podcast generation for " .. #lines .. " lines. Please wait..."
- end
- if podcastProgressBar then
- podcastProgressBar.setVisibility(View.VISIBLE)
- podcastProgressBar.setMax(#lines)
- podcastProgressBar.setProgress(0)
- end
- end)
- processMultiVoiceLine(lines, 1, #lines)
-end
-function processMultiVoiceLine(dialogueList, index, totalLines)
- if index > totalLines then
- runOnUi(function()
- if resultText then
- resultText.text = "Status: Joining all voice parts, please wait..."
- end
- if podcastProgressBar then
- podcastProgressBar.setProgress(100)
- end
- end)
- mergeAndSavePodcast()
- return
- end
- currentGenerationProgress = index - 1
- local currentLine = dialogueList[index]
- local speakerName = currentLine.speaker
- local rawText = currentLine.text
- local selectedVoice = "Puck"
- local defaultEmotion = "Default"
- local currentSpeed = 1.0
- local currentPitch = 0.0
- for i = 1, #configNames do
- if speakerName == configNames[i] then
- selectedVoice = configVoices[i]
- defaultEmotion = configEmotions[i]
- currentSpeed = configSpeeds[i]
- currentPitch = configPitches[i]
- break
- end
- end
- local currentVoiceMap = getCurrentVoiceMap()
- local isValidVoice = false
- for _, v in pairs(currentVoiceMap) do
- if v == selectedVoice then
- isValidVoice = true
- break
- end
- end
- if not isValidVoice then selectedVoice = "Puck" end
- local emotionTag, contentText = rawText:match("^%s*%[(.-)%]%s*(.*)$")
- local currentEmotion = defaultEmotion
- local textToSpeak = rawText
- local tempCustomPrompt = nil
- if emotionTag then
- local normalizedEmotion = emotionTag:match("^%s*(.-)%s*$")
- local foundEmotion = false
- for _, v in ipairs(emotionsFull) do
- if v:match("^(.-)%s*%(") == normalizedEmotion or v == normalizedEmotion then
- currentEmotion = v
- textToSpeak = contentText
- foundEmotion = true
- break
- end
- end
- if not foundEmotion then
- currentEmotion = "Custom"
- tempCustomPrompt = normalizedEmotion
- textToSpeak = contentText
- end
- else
- textToSpeak = rawText
- end
- textToSpeak = cleanTextForAudio(textToSpeak)
- runOnUi(function()
- if resultText then
- resultText.text = string.format("Processing (%d/%d)\nSpeaker: %s | Voice: %s\nStatus: Generating audio...",
- index, totalLines, speakerName, selectedVoice)
- end
- if podcastProgressBar then
- podcastProgressBar.setVisibility(View.VISIBLE)
- local progress = math.floor(((index - 1) / totalLines) * 100)
- podcastProgressBar.setProgress(progress)
- end
- end)
- local function handleLineError(errMsg)
- isGenerationActive = false
- runOnUi(function()
- if generateButton then
- generateButton.text = "Generate Audio"
- generateButton.setEnabled(true)
- end
- if resultText then
- resultText.text = "Error: " .. errMsg
- end
- if podcastProgressBar then
- podcastProgressBar.setVisibility(View.GONE)
- end
- showErrorDialog(errMsg)
- end)
- end
- local speechConfig = { voiceConfig = { prebuiltVoiceConfig = { voiceName = selectedVoice } } }
- local requestBody = {
- contents = { { parts = { { text = textToSpeak } } } },
- generationConfig = {
- responseModalities = {"AUDIO"},
- speechConfig = speechConfig,
- temperature = 0.5,
- maxOutputTokens = 5000
- },
- safetySettings = {
- { category = "HARM_CATEGORY_HARASSMENT", threshold = "BLOCK_NONE" },
- { category = "HARM_CATEGORY_HATE_SPEECH", threshold = "BLOCK_NONE" },
- { category = "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold = "BLOCK_NONE" },
- { category = "HARM_CATEGORY_DANGEROUS_CONTENT", threshold = "BLOCK_NONE" }
- }
- }
- local headers = HashMap()
- headers.put("Content-Type", "application/json")
- Http.post(API_ENDPOINTS[SELECTED_API_PROVIDER](API_KEY), cjson.encode(requestBody), headers, function(code, content)
- if code == 200 then
- local status, data = pcall(cjson.decode, content)
- if status and data and data.candidates and #data.candidates > 0 then
- local cand = data.candidates[1]
- if cand.finishReason and cand.finishReason ~= "STOP" and cand.finishReason ~= "MAX_TOKENS" then
- handleLineError("Line " .. index .. " (" .. speakerName .. ") blocked. Reason: " .. cand.finishReason .. "\nTry adding more context to the text.")
- return
- end
- local base64Audio = nil
- if cand.content and cand.content.parts then
- for i=1, #cand.content.parts do
- if cand.content.parts[i].inlineData then
- base64Audio = cand.content.parts[i].inlineData.data
- break
- end
- end
- end
- if base64Audio then
- local audioBytes = Base64.decode(base64Audio, Base64.NO_WRAP)
- table.insert(audioParts, audioBytes)
- processMultiVoiceLine(dialogueList, index + 1, totalLines)
- else
- handleLineError("Audio error at line " .. index .. ": No audio data returned.")
- end
- else
- handleLineError("JSON error at line " .. index .. ": Invalid structure.")
- end
- else
- handleLineError("HTTP error at line " .. index .. ": Code " .. code)
- end
- end)
-end
-function saveAudioFile(sourcePath, selectedFormat)
- local status, savedPath = pcall(function()
- local sourceFile = File(sourcePath)
- if not sourceFile.exists() then
- error("Source file does not exist: " .. sourcePath)
- end
- local destDir = File(USER_AUDIO_DIR)
- if not destDir.exists() then
- destDir.mkdirs()
- end
- local timestamp = os.date("%Y%m%d_%H%M%S")
- local baseName = ""
- if currentMode == 0 then
- baseName = "single_"
- elseif currentMode == 1 then
- baseName = "dialogue_"
- elseif currentMode == 2 then
- baseName = "podcast4_"
- else
- baseName = "podcast6_"
- end
- local newFileName = baseName .. timestamp .. "." .. selectedFormat
- local destFile = File(destDir, newFileName)
- local savedPath = destFile.getAbsolutePath()
- local input = FileInputStream(sourceFile)
- local output = FileOutputStream(destFile)
- local buffer = byte[1024]
- local len
- while true do
- len = input.read(buffer)
- if len == -1 then break end
- output.write(buffer, 0, len)
- end
- output.flush()
- output.close()
- input.close()
- local mediaScanIntent = Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE)
- mediaScanIntent.setData(Uri.fromFile(destFile))
- activity.sendBroadcast(mediaScanIntent)
- return savedPath
- end)
- if not status then
- return nil, savedPath
- end
- return savedPath
-end
-function showCustomEmotionDialog(voiceIndex, onSaveCallback)
- local currentPrompt = customEmotionPrompt
- local name = configNames[voiceIndex]
- local title = "Custom Emotion for " .. name
- if voiceIndex == 0 then
- title = "Custom Emotion for Single Voice"
- end
- local scrollView = ScrollView(activity)
- local mainLayout = LinearLayout(activity)
- mainLayout.setOrientation(LinearLayout.VERTICAL)
- mainLayout.setPadding(dip2px(8), dip2px(8), dip2px(8), dip2px(8))
- local promptLabel = TextView(activity)
- promptLabel.text = "Enter emotion/intonation description (Prompt format):"
- promptLabel.layout_width = LinearLayout.LayoutParams.MATCH_PARENT
- mainLayout.addView(promptLabel)
- local promptInput = EditText(activity)
- promptInput.text = currentPrompt
- promptInput.layout_width = LinearLayout.LayoutParams.MATCH_PARENT
- promptInput.layout_height = LinearLayout.LayoutParams.WRAP_CONTENT
- promptInput.hint = "Example: Read with a deep, warm voice..."
- mainLayout.addView(promptInput)
- scrollView.addView(mainLayout)
- local d = LuaDialog(activity)
- .setTitle(title)
- .setView(scrollView)
- .setPositiveButton("Apply", function()
- local newPrompt = promptInput.text
- if #newPrompt > 0 then
- customEmotionPrompt = newPrompt
- saveConfig()
- if onSaveCallback then
- onSaveCallback(newPrompt)
- end
- end
- end)
- .setNegativeButton("Cancel", nil)
- d.show()
-end
-local function setupControlSeekBar(seekBar, textView, isSpeed, currentVal, onValueChange)
- local minVal, maxVal, step = isSpeed and 0.5 or -2.0, isSpeed and 3.0 or 2.0, isSpeed and 0.1 or 0.2
- local range = maxVal - minVal
- seekBar.setMax(100)
- local function updateValue(progress)
- local value = minVal + (range * progress / 100)
- local snappedValue = math.floor(value / step + 0.5) * step
- if isSpeed then
- textView.text = string.format("Speed: %.1fx", snappedValue)
- else
- textView.text = string.format("Pitch: %.1f", snappedValue)
- end
- onValueChange(snappedValue)
- end
- seekBar.setOnSeekBarChangeListener(SeekBar.OnSeekBarChangeListener{
- onProgressChanged = function(seekBar, progress, fromUser)
- updateValue(progress)
- end,
- onStartTrackingTouch = function() end,
- onStopTrackingTouch = function(seekBar)
- updateValue(seekBar.getProgress())
- vibrate()
- end
- })
- local progress = math.floor(((currentVal - minVal) / range) * 100)
- seekBar.setProgress(progress)
-end
-function showVoiceConfigDialog(voiceIndex)
- local currentName = configNames[voiceIndex]
- local currentVoiceID = configVoices[voiceIndex]
- local currentEmotion = configEmotions[voiceIndex]
- local currentSpeed = configSpeeds[voiceIndex]
- local currentPitch = configPitches[voiceIndex]
- local currentVoiceDisplay = ""
- local currentVoiceMap = getCurrentVoiceMap()
- for k, v in pairs(currentVoiceMap) do
- if v == currentVoiceID then
- currentVoiceDisplay = k
- break
- end
- end
- if currentVoiceDisplay == "" then
- for k, v in pairs(voiceMapGemini) do
- if v == currentVoiceID then
- currentVoiceDisplay = k
- break
- end
- end
- end
- local tempName = currentName
- local tempVoiceDisplay = currentVoiceDisplay
- local tempVoiceID = currentVoiceID
- local tempEmotion = currentEmotion
- local tempSpeed = currentSpeed
- local tempPitch = currentPitch
- local testButton, stopButton
- local scrollView = ScrollView(activity)
- local mainLayout = LinearLayout(activity)
- mainLayout.setOrientation(LinearLayout.VERTICAL)
- mainLayout.setPadding(dip2px(10), dip2px(10), dip2px(10), dip2px(10))
- local nameLabel = TextView(activity)
- nameLabel.text = "1. Voice Name:"
- nameLabel.textSize = 12
- mainLayout.addView(nameLabel)
- local nameInput = EditText(activity)
- nameInput.text = tempName
- nameInput.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- nameInput.hint = "Example: Host, Guest..."
- mainLayout.addView(nameInput)
- local voiceLabel = TextView(activity)
- voiceLabel.text = "2. Select Voice:"
- voiceLabel.textSize = 12
- voiceLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local voiceLabelParams = voiceLabel.getLayoutParams()
- if voiceLabelParams then
- voiceLabelParams.topMargin = dip2px(10)
- end
- mainLayout.addView(voiceLabel)
- local voiceSpinner = Spinner(activity)
- voiceSpinner.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- mainLayout.addView(voiceSpinner)
- local emotionLabel = TextView(activity)
- emotionLabel.text = "3. Default Emotion:"
- emotionLabel.textSize = 12
- emotionLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local emotionLabelParams = emotionLabel.getLayoutParams()
- if emotionLabelParams then
- emotionLabelParams.topMargin = dip2px(10)
- end
- mainLayout.addView(emotionLabel)
- local emotionSpinner = Spinner(activity)
- emotionSpinner.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- mainLayout.addView(emotionSpinner)
- local speedLabel = TextView(activity)
- speedLabel.text = "4. Voice Speed:"
- speedLabel.textSize = 12
- speedLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local speedLabelParams = speedLabel.getLayoutParams()
- if speedLabelParams then
- speedLabelParams.topMargin = dip2px(10)
- end
- mainLayout.addView(speedLabel)
- local speedText = TextView(activity)
- speedText.text = string.format("Speed: %.1fx", currentSpeed)
- speedText.textSize = 10
- mainLayout.addView(speedText)
- local speedSeekBar = SeekBar(activity)
- speedSeekBar.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- mainLayout.addView(speedSeekBar)
- local pitchLabel = TextView(activity)
- pitchLabel.text = "5. Voice Pitch (Tone):"
- pitchLabel.textSize = 12
- pitchLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local pitchLabelParams = pitchLabel.getLayoutParams()
- if pitchLabelParams then
- pitchLabelParams.topMargin = dip2px(10)
- end
- mainLayout.addView(pitchLabel)
- local pitchText = TextView(activity)
- pitchText.text = string.format("Pitch: %.1f", currentPitch)
- pitchText.textSize = 10
- mainLayout.addView(pitchText)
- local pitchSeekBar = SeekBar(activity)
- pitchSeekBar.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- mainLayout.addView(pitchSeekBar)
- local divider = View(activity)
- divider.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(1)))
- divider.setBackgroundColor(0xFF888888)
- local dividerParams = divider.getLayoutParams()
- if dividerParams then
- dividerParams.topMargin = dip2px(15)
- dividerParams.bottomMargin = dip2px(10)
- end
- mainLayout.addView(divider)
- local testLabel = TextView(activity)
- testLabel.text = "Test Text:"
- testLabel.textSize = 12
- testLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local testLabelParams = testLabel.getLayoutParams()
- if testLabelParams then
- testLabelParams.topMargin = dip2px(5)
- end
- mainLayout.addView(testLabel)
- local testInput = EditText(activity)
- testInput.text = emotionExampleMap[currentEmotion] or emotionExampleMap["Default"]
- testInput.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- testInput.lines = 3
- testInput.hint = "Enter sample text..."
- mainLayout.addView(testInput)
- local buttonLayout = LinearLayout(activity)
- buttonLayout.setOrientation(LinearLayout.HORIZONTAL)
- buttonLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local buttonLayoutParams = buttonLayout.getLayoutParams()
- if buttonLayoutParams then
- buttonLayoutParams.topMargin = dip2px(10)
- end
- testButton = Button(activity)
- testButton.text = "Test Listen"
- testButton.setLayoutParams(LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))
- buttonLayout.addView(testButton)
- stopButton = Button(activity)
- stopButton.text = "Stop"
- local stopButtonParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1)
- stopButtonParams.leftMargin = dip2px(10)
- stopButton.setLayoutParams(stopButtonParams)
- buttonLayout.addView(stopButton)
- mainLayout.addView(buttonLayout)
- scrollView.addView(mainLayout)
- local d = LuaDialog(activity)
- .setTitle("Voice Configuration: " .. currentName)
- .setView(scrollView)
- .setPositiveButton("Save & Apply", function()
- stopConfigTestAudio()
- configNames[voiceIndex] = tempName
- configVoices[voiceIndex] = tempVoiceID
- configSpeeds[voiceIndex] = tempSpeed
- configPitches[voiceIndex] = tempPitch
- configEmotions[voiceIndex] = tempEmotion
- saveConfig()
- runOnUi(function()
- resultText.text = string.format("Configuration updated for %s.", tempName)
- end)
- end)
- .setNegativeButton("Cancel", function()
- stopConfigTestAudio()
- end)
- d.show()
- nameInput.addTextChangedListener(TextWatcher{
- onTextChanged = function(s, start, before, count)
- tempName = tostring(s)
- end
- })
- local voicesList = {}
- local currentMap = getCurrentVoiceMap()
- for k, _ in pairs(currentMap) do
- table.insert(voicesList, k)
- end
- table.sort(voicesList)
- local voiceAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, voicesList)
- voiceAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
- voiceSpinner.setAdapter(voiceAdapter)
- local vIndexPos = 0
- for i=1, #voicesList do
- if voicesList[i] == currentVoiceDisplay then
- vIndexPos = i - 1
- break
- end
- end
- voiceSpinner.setSelection(vIndexPos)
- voiceSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener{
- onItemSelected = function(parent, view, position, id)
- tempVoiceDisplay = voicesList[position + 1]
- tempVoiceID = currentMap[tempVoiceDisplay]
- end
- })
- local emotionAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, emotionsFull)
- emotionAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
- emotionSpinner.setAdapter(emotionAdapter)
- local emoIndexPos = 0
- for i=1, #emotionsFull do
- if emotionsFull[i] == currentEmotion then
- emoIndexPos = i - 1
- break
- end
- end
- emotionSpinner.setSelection(emoIndexPos)
- emotionSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener{
- onItemSelected = function(parent, view, position, id)
- tempEmotion = emotionsFull[position + 1]
- local exampleText = emotionExampleMap[tempEmotion] or emotionExampleMap["Default"]
- testInput.text = exampleText
- if tempEmotion == "Custom" then
- showCustomEmotionDialog(voiceIndex, function(prompt)
- testInput.text = (emotionExampleMap[tempEmotion] or "") .. " (" .. prompt .. ")"
- end)
- end
- end
- })
- setupControlSeekBar(speedSeekBar, speedText, true, currentSpeed, function(value)
- tempSpeed = value
- end)
- setupControlSeekBar(pitchSeekBar, pitchText, false, currentPitch, function(value)
- tempPitch = value
- end)
- testButton.onClick = function()
- vibrate()
- if configTestAudioPlayer and configTestAudioPlayer.isPlaying() then
- stopConfigTestAudio()
- testButton.text = "Test Listen"
- return
- end
- local text = testInput.text
- local vID = tempVoiceID
- if #text == 0 then return end
- testButton.text = "Creating..."
- Thread(Runnable{ run = function()
- testSpeak(text, vID, tempEmotion, tempSpeed, tempPitch, false, true)
- end }).start()
- end
- stopButton.onClick = function()
- vibrate()
- stopConfigTestAudio()
- runOnUi(function()
- testButton.text = "Test Listen"
- end)
- end
-end
-function showAllVoicesConfigDialog()
- local voiceLimit = 6
- local dialogTitle = "Configure All Voices (1-6)"
- if currentMode == 1 then
- voiceLimit = 2
- dialogTitle = "Configure Dialogue Voices (1-2)"
- elseif currentMode == 2 then
- voiceLimit = 4
- dialogTitle = "Configure Podcast Voices (1-4)"
- elseif currentMode == 3 then
- voiceLimit = 6
- dialogTitle = "Configure All Voices (1-6)"
- end
- local scrollView = ScrollView(activity)
- local container = LinearLayout(activity)
- container.setOrientation(LinearLayout.VERTICAL)
- container.setPadding(dip2px(10), dip2px(10), dip2px(10), dip2px(10))
- for i = 1, voiceLimit do
- local voiceRow = LinearLayout(activity)
- voiceRow.setOrientation(LinearLayout.HORIZONTAL)
- voiceRow.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- voiceRow.setPadding(dip2px(8), dip2px(8), dip2px(8), dip2px(8))
- voiceRow.setFocusable(true)
- local nameText = TextView(activity)
- local displayName = configNames[i] or ("Voice " .. i)
- local displayID = configVoices[i] or "None"
- nameText.text = i .. ". " .. displayName .. " (" .. displayID .. ")"
- nameText.setLayoutParams(LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))
- nameText.gravity = Gravity.CENTER_VERTICAL
- nameText.textSize = 12
- nameText.setTextColor(0xFF333333)
- voiceRow.addView(nameText)
- local configButton = Button(activity)
- configButton.text = "Configure"
- configButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- configButton.setContentDescription("Configure " .. displayName)
- configButton.onClick = function()
- vibrate()
- showVoiceConfigDialog(i)
- end
- voiceRow.addView(configButton)
- container.addView(voiceRow)
- local line = View(activity)
- line.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(1)))
- line.setBackgroundColor(0xFFCCCCCC)
- container.addView(line)
- end
- scrollView.addView(container)
- LuaDialog(this)
- .setTitle(dialogTitle)
- .setView(scrollView)
- .setPositiveButton("Close", nil)
- .show()
-end
-function processTextForEmotion(rawText)
- local mode = textEmotionMode
- if mode == "Default (Keep as is)" or not rawText then
- return rawText
- end
- local newText = ""
- local lines = {}
- for line in rawText:gmatch("[^\r\n]+") do
- table.insert(lines, line)
- end
- local nonDefaultEmotions = {}
- for _, emo in ipairs(emotionsFull) do
- if emo ~= "Default" and emo ~= "Custom" then
- table.insert(nonDefaultEmotions, emo)
- end
- end
- math.randomseed(os.time() * os.clock() * 1000000)
- for _, line in ipairs(lines) do
- local speaker, content = line:match("^%s*(.-)%s*:%s*(.+)")
- if speaker and content then
- speaker = speaker:match("^%s*(.-)%s*$")
- local _, _, existingEmotion, cleanedContent = content:find("^%s*%[(.-)%]%s*(.*)$")
- cleanedContent = cleanedContent or content
- if mode == "Default Voice Emotion" then
- local selectedEmotion = "Default"
- for i = 1, #configNames do
- if speaker:lower() == tostring(configNames[i]):lower() then
- selectedEmotion = configEmotions[i]
- break
- end
- end
- if selectedEmotion ~= "Default" then
- local emotionName = selectedEmotion:match("^(.-)%s*%(") or selectedEmotion:match("^(.-)%s*$")
- if selectedEmotion == "Custom" then
- emotionName = (customEmotionPrompt and customEmotionPrompt ~= "") and customEmotionPrompt:match("^(.-)%.?%s*$") or "Custom"
- end
- newText = newText .. speaker .. ": [" .. emotionName .. "] " .. cleanedContent .. "\n"
- else
- newText = newText .. speaker .. ": " .. cleanedContent .. "\n"
- end
- elseif mode == "Random Emotion" then
- if #nonDefaultEmotions > 0 then
- local randomIndex = math.random(1, #nonDefaultEmotions)
- local randomEmotion = nonDefaultEmotions[randomIndex]
- local emotionName = randomEmotion:match("^(.-)%s*%(") or randomEmotion:match("^(.-)%s*$")
- newText = newText .. speaker .. ": [" .. emotionName .. "] " .. cleanedContent .. "\n"
- else
- newText = newText .. speaker .. ": " .. cleanedContent .. "\n"
- end
- end
- else
- newText = newText .. line .. "\n"
- end
- end
- return newText:gsub("\n$", "")
-end
-function updateUIMode(mode)
- currentMode = mode
- saveConfig()
- runOnUi(function()
- if resultText then resultText.text = "Status: Ready for new " .. modes[mode + 1] end
- if podcastProgressBar then
- podcastProgressBar.setVisibility(View.GONE)
- podcastProgressBar.setProgress(0)
- end
- if playButton then playButton.setVisibility(View.GONE) end
- if downloadButton then downloadButton.setVisibility(View.GONE) end
- if formatSpinner then formatSpinner.setVisibility(View.GONE) end
- if generateButton then
- generateButton.setEnabled(true)
- generateButton.text = "Generate Audio"
- end
- end)
- if voiceSelectorLayout then
- voiceSelectorLayout.setVisibility((mode >= 1) and View.VISIBLE or View.GONE)
- end
- if textEmotionSpinnerLayout then
- textEmotionSpinnerLayout.setVisibility((mode >= 1) and View.VISIBLE or View.GONE)
- end
- if dialogueEmotionLabel then
- dialogueEmotionLabel.setVisibility((mode >= 1) and View.VISIBLE or View.GONE)
- end
- if btnDialogueEmotionApply then
- btnDialogueEmotionApply.setVisibility((mode >= 1) and View.VISIBLE or View.GONE)
- end
- if podcastEmotionNote then
- podcastEmotionNote.setVisibility((mode >= 1) and View.VISIBLE or View.GONE)
- end
- if scriptInput then
- scriptInput.setVisibility((mode >= 1) and View.VISIBLE or View.GONE)
- end
- if scriptLabel then
- scriptLabel.setVisibility((mode >= 1) and View.VISIBLE or View.GONE)
- end
- if mode == 0 then
- if btnConfigVoice1 then
- btnConfigVoice1.text = "Configure Voice"
- btnConfigVoice1.setVisibility(View.VISIBLE)
- end
- if btnConfigVoice2 then
- btnConfigVoice2.setVisibility(View.GONE)
- end
- if chatLabel then chatLabel.text = "Enter text:" end
- if chatInput then chatInput.hint = "Type text for single voice..." end
- if generateButton then generateButton.text = "Generate Audio" end
- if scriptInput then scriptInput.hint = "Not available in single voice mode" end
- elseif mode == 1 then
- if btnConfigVoice1 then
- btnConfigVoice1.text = "Configure Voice 1"
- btnConfigVoice1.setVisibility(View.VISIBLE)
- end
- if btnConfigVoice2 then
- btnConfigVoice2.text = "Configure Voice 2"
- btnConfigVoice2.setVisibility(View.VISIBLE)
- end
- if chatLabel then chatLabel.text = "Enter dialogue:" end
- if chatInput then chatInput.hint = "Type message..." end
- if generateButton then generateButton.text = "Generate Dialogue" end
- if scriptInput then
- scriptInput.hint = "Example:\n" .. (configNames[1] or "Host") .. ": Hello!\n" .. (configNames[2] or "Guest") .. ": Hi there!"
- end
- elseif mode == 2 then
- if btnConfigVoice1 then
- btnConfigVoice1.text = "Configure All Voices (1-4)"
- btnConfigVoice1.setVisibility(View.VISIBLE)
- end
- if btnConfigVoice2 then
- btnConfigVoice2.setVisibility(View.GONE)
- end
- if chatLabel then chatLabel.text = "Enter script:" end
- if chatInput then chatInput.hint = "Type message..." end
- if generateButton then generateButton.text = "Generate Podcast (4 Voices)" end
- if scriptInput then
- scriptInput.hint = "Example:\n" .. (configNames[1] or "Voice 1") .. ": Welcome!\n" .. (configNames[2] or "Voice 2") .. ": Thank you!"
- end
- elseif mode == 3 then
- if btnConfigVoice1 then
- btnConfigVoice1.text = "Configure All Voices (1-6)"
- btnConfigVoice1.setVisibility(View.VISIBLE)
- end
- if btnConfigVoice2 then
- btnConfigVoice2.setVisibility(View.GONE)
- end
- if chatLabel then chatLabel.text = "Enter script:" end
- if chatInput then chatInput.hint = "Type message..." end
- if generateButton then generateButton.text = "Generate Podcast (6 Voices)" end
- if scriptInput then
- scriptInput.hint = "Example:\n" .. (configNames[1] or "Voice 1") .. ": Hello everyone!"
- end
- end
- if updateCharCounter then updateCharCounter() end
- if updateVoiceSelector then updateVoiceSelector() end
-end
-function testGeminiApi(apiKey, onResult)
- local testModel = "gemini-2.5-flash"
- local apiUrl
- if SELECTED_API_PROVIDER == "Google Generative Language (Gemini)" then
- apiUrl = string.format(
- "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
- testModel, apiKey
- )
- else
- onResult(false, "Please select Google Generative Language as provider for testing.")
- return
- end
- local requestBody = {
- contents = {{ role = "user", parts = {{ text = "Hello, reply with one word Success." }}}},
- generationConfig = { temperature = 0.5, maxOutputTokens = 10 }
- }
- local headers = HashMap()
- headers.put("Content-Type", "application/json")
- Http.post(apiUrl, cjson.encode(requestBody), headers, function(code, content)
- if code == 200 then
- local status, data = pcall(cjson.decode, content)
- if status and data and data.candidates and #data.candidates > 0 then
- local candidate = data.candidates[1]
- if candidate.content and candidate.content.parts and #candidate.content.parts > 0 then
- local responseText = candidate.content.parts[1].text
- runOnUi(function()
- onResult(true, "Google API working! Response: " .. tostring(responseText))
- end)
- else
- runOnUi(function()
- onResult(false, "API Error: Response blocked by safety filters or empty content.")
- end)
- end
- else
- runOnUi(function()
- onResult(false, "JSON parsing error: " .. (content or ""):sub(1, 100))
- end)
- end
- elseif code == 400 then
- runOnUi(function()
- onResult(false, "Error 400: Invalid API Key or malformed request.")
- end)
- elseif code == 403 then
- runOnUi(function()
- onResult(false, "Error 403: Permission denied. Check your API key restrictions.")
- end)
- elseif code == 429 then
- runOnUi(function()
- onResult(false, "Error 429: Rate limit exceeded. Try again in a minute.")
- end)
- else
- runOnUi(function()
- onResult(false, "HTTP Error: " .. code .. " - Check connection.")
- end)
- end
- end)
-end
-function showGeminiConfigDialog()
- local tempApiKey = API_KEY
- local tempApiProvider = SELECTED_API_PROVIDER
- local scrollView = ScrollView(activity)
- local mainLayout = LinearLayout(activity)
- mainLayout.setOrientation(LinearLayout.VERTICAL)
- mainLayout.setPadding(dip2px(10), dip2px(10), dip2px(10), dip2px(10))
- local titleLabel = TextView(activity)
- titleLabel.text = "API Configuration"
- titleLabel.textSize = 14
- titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
- titleLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local titleLabelParams = titleLabel.getLayoutParams()
- if titleLabelParams then
- titleLabelParams.topMargin = dip2px(5)
- titleLabelParams.bottomMargin = dip2px(10)
- end
- mainLayout.addView(titleLabel)
- local providerLabel = TextView(activity)
- providerLabel.text = "1. Select API Provider:"
- providerLabel.textSize = 12
- providerLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local providerLabelParams = providerLabel.getLayoutParams()
-if providerLabelParams then
- providerLabelParams.topMargin = dip2px(10)
-end
-mainLayout.addView(providerLabel)
-local providerSpinner = Spinner(activity)
-providerSpinner.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-mainLayout.addView(providerSpinner)
-local keyLabel = TextView(activity)
-keyLabel.text = "2. API Key:"
-keyLabel.textSize = 12
-keyLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-local keyLabelParams = keyLabel.getLayoutParams()
-if keyLabelParams then
- keyLabelParams.topMargin = dip2px(10)
-end
-mainLayout.addView(keyLabel)
-local keyInput = EditText(activity)
-keyInput.text = tempApiKey
-keyInput.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-keyInput.hint = "Enter API Key..."
-mainLayout.addView(keyInput)
-local noteLabel = TextView(activity)
-noteLabel.text = "Note: Gemini is recommended for better performance."
-noteLabel.textSize = 10
-noteLabel.setTextColor(0xFF555555)
-noteLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-local noteLabelParams = noteLabel.getLayoutParams()
-if noteLabelParams then
- noteLabelParams.topMargin = dip2px(5)
-end
-mainLayout.addView(noteLabel)
-local testButton = Button(activity)
-testButton.text = "Test API Connection"
-testButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-local testButtonParams = testButton.getLayoutParams()
-if testButtonParams then
- testButtonParams.topMargin = dip2px(10)
-end
-mainLayout.addView(testButton)
-local resultText = TextView(activity)
-resultText.text = "Test status: Not tested"
-resultText.textSize = 10
-resultText.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-local resultTextParams = resultText.getLayoutParams()
-if resultTextParams then
- resultTextParams.topMargin = dip2px(5)
-end
-mainLayout.addView(resultText)
-scrollView.addView(mainLayout)
-local d = LuaDialog(activity)
-d.setTitle("API Configuration")
-d.setView(scrollView)
-d.setPositiveButton("Save", function()
- API_KEY = tostring(keyInput.text)
- SELECTED_API_PROVIDER = tempApiProvider
- if type(updateVoicesBasedOnProvider) == "function" then
- updateVoicesBasedOnProvider()
- end
- if type(saveGeminiConfig) == "function" then
- saveGeminiConfig()
- end
- runOnUi(function()
- showInfoDialog("Success", "Configuration saved! Provider set to: " .. SELECTED_API_PROVIDER)
- end)
-end)
-d.setNegativeButton("Cancel", nil)
-d.show()
-local providerAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, API_PROVIDERS)
-providerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-providerSpinner.setAdapter(providerAdapter)
-local providerIndex = 0
-for i=1, #API_PROVIDERS do
- if API_PROVIDERS[i] == tempApiProvider then
- providerIndex = i - 1
- break
- end
-end
-providerSpinner.setSelection(providerIndex)
-providerSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener{
- onItemSelected = function(parent, view, position, id)
- tempApiProvider = API_PROVIDERS[position + 1]
- resultText.text = "Test status: Need to test again"
- end
-})
-keyInput.addTextChangedListener(TextWatcher{
- onTextChanged = function(s, start, before, count)
- tempApiKey = tostring(s)
- resultText.text = "Test status: Need to test again"
- end
-})
-testButton.onClick = function()
- vibrate()
- local key = tostring(keyInput.text)
- local provider = API_PROVIDERS[providerSpinner.getSelectedItemPosition() + 1]
- if #key == 0 then
- resultText.text = "Error: Please enter API key"
- return
- end
- testButton.text = "Testing..."
- testButton.setEnabled(false)
- resultText.text = "Test status: Connecting..."
- Thread(Runnable{ run = function()
- if type(testGeminiApi) == "function" then
- testGeminiApi(key, function(success, message)
- runOnUi(function()
- testButton.text = "Test API Connection"
- testButton.setEnabled(true)
- resultText.text = message
- end)
- end)
- else
- runOnUi(function()
- testButton.setEnabled(true)
- resultText.text = "Error: testGeminiApi function not found"
- end)
- end
- end }).start()
-end
-end
-function getAudioFilesList()
- local dir = File(USER_AUDIO_DIR)
- local files = {}
- if not dir.exists() then
- dir.mkdirs()
- return files
- end
- local fileList = dir.listFiles()
- if not fileList then
- return files
- end
- for i=0, #fileList-1 do
- local file = fileList[i]
- if file and file.isFile() then
- local name = file.getName()
- local path = file.getAbsolutePath()
- local size = file.length()
- local lastModified = file.lastModified()
- if name:match("%.wav$") or name:match("%.mp3$") or name:match("%.ogg$") or
- name:match("%.aac$") or name:match("%.wma$") then
- table.insert(files, {
- name = name,
- path = path,
- size = size,
- lastModified = lastModified,
- file = file
- })
- end
- end
- end
- table.sort(files, function(a, b)
- return a.lastModified > b.lastModified
- end)
- return files
-end
-function showProfessionalPlayer(file)
- local player = MediaPlayer()
- local playerState = "stopped"
- local updateTask = nil
- local audioFiles = getAudioFilesList()
- local currentFileIndex = 1
- for i, audioFile in ipairs(audioFiles) do
- if audioFile.path == file.path then
- currentFileIndex = i
- break
- end
- end
- local scrollView = ScrollView(activity)
- local mainLayout = LinearLayout(activity)
- mainLayout.setOrientation(LinearLayout.VERTICAL)
- mainLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
- mainLayout.setPadding(dip2px(10), dip2px(10), dip2px(10), dip2px(10))
- local titleLabel = TextView(activity)
- titleLabel.text = file.name
- titleLabel.textSize = 16
- titleLabel.gravity = Gravity.CENTER
- titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
- titleLabel.setTextColor(0xFF333333)
- local titleParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- titleParams.bottomMargin = dip2px(8)
- titleLabel.setLayoutParams(titleParams)
- mainLayout.addView(titleLabel)
- local fileInfoText = TextView(activity)
- fileInfoText.text = string.format("Track %d of %d", currentFileIndex, #audioFiles)
- fileInfoText.textSize = 10
- fileInfoText.gravity = Gravity.CENTER
- fileInfoText.setTextColor(0xFF666666)
- local fileInfoParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- fileInfoParams.bottomMargin = dip2px(10)
- fileInfoText.setLayoutParams(fileInfoParams)
- mainLayout.addView(fileInfoText)
- local seekBar = SeekBar(activity)
- local seekParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- seekParams.bottomMargin = dip2px(8)
- seekBar.setLayoutParams(seekParams)
- mainLayout.addView(seekBar)
- local timeLayout = LinearLayout(activity)
- timeLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- timeLayout.setPadding(0, 0, 0, dip2px(10))
- local currentTime = TextView(activity)
- currentTime.text = "00:00"
- currentTime.textSize = 10
- currentTime.setTextColor(0xFF2196F3)
- currentTime.setTypeface(Typeface.DEFAULT_BOLD)
- currentTime.setLayoutParams(LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))
- timeLayout.addView(currentTime)
- local totalTime = TextView(activity)
- totalTime.text = "00:00"
- totalTime.textSize = 10
- totalTime.setTextColor(0xFF666666)
- totalTime.gravity = Gravity.RIGHT
- totalTime.setLayoutParams(LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))
- timeLayout.addView(totalTime)
- mainLayout.addView(timeLayout)
- local speedLabel = TextView(activity)
- speedLabel.text = "Playback Speed"
- speedLabel.textSize = 12
- speedLabel.setTypeface(Typeface.DEFAULT_BOLD)
- speedLabel.setTextColor(0xFF333333)
- local speedLabelParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- speedLabelParams.bottomMargin = dip2px(5)
- speedLabel.setLayoutParams(speedLabelParams)
- mainLayout.addView(speedLabel)
- local speedBar = SeekBar(activity)
- speedBar.max = 200
- speedBar.progress = 100
- speedBar.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- mainLayout.addView(speedBar)
- local speedValueText = TextView(activity)
- speedValueText.text = "Speed: 1.0x"
- speedValueText.textSize = 10
- speedValueText.gravity = Gravity.CENTER
- speedValueText.setTextColor(0xFF666666)
- local speedValueParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- speedValueParams.topMargin = dip2px(5)
- speedValueParams.bottomMargin = dip2px(20)
- speedValueText.setLayoutParams(speedValueParams)
- mainLayout.addView(speedValueText)
- local spacer = View(activity)
- local spacerParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1)
- spacer.setLayoutParams(spacerParams)
- mainLayout.addView(spacer)
- local controlRow1 = LinearLayout(activity)
- controlRow1.setOrientation(LinearLayout.HORIZONTAL)
- controlRow1.gravity = Gravity.CENTER
- controlRow1.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- controlRow1.setPadding(0, 0, 0, dip2px(10))
- local prevTrackButton = Button(activity)
- prevTrackButton.text = "鈴�"
- prevTrackButton.setTextSize(16)
- prevTrackButton.setBackgroundResource(android.R.drawable.btn_default)
- local prevTrackParams = LinearLayout.LayoutParams(dip2px(50), dip2px(40))
- prevTrackParams.rightMargin = dip2px(5)
- prevTrackButton.setLayoutParams(prevTrackParams)
- if currentFileIndex == 1 then
- prevTrackButton.setEnabled(false)
- prevTrackButton.setTextColor(0xFFAAAAAA)
- end
- controlRow1.addView(prevTrackButton)
- local rewindButton = Button(activity)
- rewindButton.text = "鈴�"
- rewindButton.setTextSize(16)
- rewindButton.setBackgroundResource(android.R.drawable.btn_default)
- local rewindParams = LinearLayout.LayoutParams(dip2px(50), dip2px(40))
- rewindParams.rightMargin = dip2px(5)
- rewindButton.setLayoutParams(rewindParams)
- controlRow1.addView(rewindButton)
- local playPauseButton = Button(activity)
- playPauseButton.text = "鈻�"
- playPauseButton.setTextSize(18)
- playPauseButton.setTypeface(Typeface.DEFAULT_BOLD)
- playPauseButton.setBackgroundResource(android.R.drawable.btn_default)
- local playPauseParams = LinearLayout.LayoutParams(dip2px(60), dip2px(50))
- playPauseButton.setLayoutParams(playPauseParams)
- controlRow1.addView(playPauseButton)
- local forwardButton = Button(activity)
- forwardButton.text = "鈴�"
- forwardButton.setTextSize(16)
- forwardButton.setBackgroundResource(android.R.drawable.btn_default)
- local forwardParams = LinearLayout.LayoutParams(dip2px(50), dip2px(40))
- forwardParams.leftMargin = dip2px(5)
- forwardButton.setLayoutParams(forwardParams)
- controlRow1.addView(forwardButton)
- local nextTrackButton = Button(activity)
- nextTrackButton.text = "鈴�"
- nextTrackButton.setTextSize(16)
- nextTrackButton.setBackgroundResource(android.R.drawable.btn_default)
- local nextTrackParams = LinearLayout.LayoutParams(dip2px(50), dip2px(40))
- nextTrackParams.leftMargin = dip2px(5)
- nextTrackButton.setLayoutParams(nextTrackParams)
- if currentFileIndex == #audioFiles then
- nextTrackButton.setEnabled(false)
- nextTrackButton.setTextColor(0xFFAAAAAA)
- end
- controlRow1.addView(nextTrackButton)
- mainLayout.addView(controlRow1)
- local controlRow2 = LinearLayout(activity)
- controlRow2.setOrientation(LinearLayout.HORIZONTAL)
- controlRow2.gravity = Gravity.CENTER
- controlRow2.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local closeButton = Button(activity)
- closeButton.text = "CLOSE PLAYER"
- closeButton.setTextSize(12)
- closeButton.setTypeface(Typeface.DEFAULT_BOLD)
- closeButton.setTextColor(0xFFFFFFFF)
- closeButton.setBackgroundColor(0xFFF44336)
- local closeParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(40))
- closeParams.topMargin = dip2px(8)
- closeButton.setLayoutParams(closeParams)
- controlRow2.addView(closeButton)
- mainLayout.addView(controlRow2)
- scrollView.addView(mainLayout)
- local pd = LuaDialog(activity)
- .setTitle("Professional Audio Player")
- .setView(scrollView)
- .show()
- local function stopAndCleanup()
- playerState = "stopped"
- if updateTask then
- updateTask.cancel()
- updateTask = nil
- end
- pcall(function()
- if player then
- local playerReleased = false
- pcall(function()
- player.isPlaying()
- end, function(err)
- playerReleased = true
- end)
- if not playerReleased then
- if player.isPlaying() then
- player.stop()
- end
- player.release()
- end
- player = nil
- end
- end)
- end
- local function updatePlayerState()
- if playerState == "playing" then
- playPauseButton.text = "鈴�"
- elseif playerState == "paused" then
- playPauseButton.text = "鈻�"
- else
- playPauseButton.text = "鈻�"
- end
- end
- local function loadNewFile(newFile, newIndex)
- stopAndCleanup()
- player = MediaPlayer()
- player.setDataSource(newFile.path)
- player.prepare()
- playerState = "stopped"
- titleLabel.text = newFile.name
- currentFileIndex = newIndex
- fileInfoText.text = string.format("Track %d of %d", currentFileIndex, #audioFiles)
- local duration = player.getDuration()
- totalTime.text = string.format("%02d:%02d", math.floor(duration/60000), math.floor((duration/1000)%60))
- seekBar.setMax(duration)
- seekBar.setProgress(0)
- currentTime.text = "00:00"
- prevTrackButton.setEnabled(currentFileIndex > 1)
- nextTrackButton.setEnabled(currentFileIndex < #audioFiles)
- prevTrackButton.setTextColor(currentFileIndex > 1 and 0xFF000000 or 0xFFAAAAAA)
- nextTrackButton.setTextColor(currentFileIndex < #audioFiles and 0xFF000000 or 0xFFAAAAAA)
- updatePlayerState()
- speedBar.setProgress(100)
- speedValueText.text = "Speed: 1.0x"
- end
- player.setDataSource(file.path)
- player.prepare()
- local duration = player.getDuration()
- totalTime.text = string.format("%02d:%02d", math.floor(duration/60000), math.floor((duration/1000)%60))
- seekBar.setMax(duration)
- seekBar.setOnSeekBarChangeListener(SeekBar.OnSeekBarChangeListener{
- onProgressChanged = function(seekBar, progress, fromUser)
- if fromUser then
- currentTime.text = string.format("%02d:%02d", math.floor(progress/60000), math.floor((progress/1000)%60))
- end
- end,
- onStartTrackingTouch = function(seekBar)
- end,
- onStopTrackingTouch = function(seekBar)
- pcall(function()
- if player and playerState == "playing" then
- player.pause()
- player.seekTo(seekBar.getProgress())
- player.start()
- elseif player then
- player.seekTo(seekBar.getProgress())
- end
- end)
- end
- })
- playPauseButton.onClick = function()
- vibrate()
- pcall(function()
- if playerState == "stopped" then
- player.start()
- playerState = "playing"
- local function update()
- if playerState == "playing" and player and pcall(function() return player.isPlaying() end) then
- local currentPos = player.getCurrentPosition()
- seekBar.setProgress(currentPos)
- currentTime.text = string.format("%02d:%02d", math.floor(currentPos/60000), math.floor((currentPos/1000)%60))
- updateTask = task(1000, update)
- end
- end
- update()
- elseif playerState == "playing" then
- player.pause()
- playerState = "paused"
- if updateTask then
- updateTask.cancel()
- updateTask = nil
- end
- elseif playerState == "paused" then
- player.start()
- playerState = "playing"
- local function update()
- if playerState == "playing" and player and pcall(function() return player.isPlaying() end) then
- local currentPos = player.getCurrentPosition()
- seekBar.setProgress(currentPos)
- currentTime.text = string.format("%02d:%02d", math.floor(currentPos/60000), math.floor((currentPos/1000)%60))
- updateTask = task(1000, update)
- end
- end
- update()
- end
- updatePlayerState()
- end)
- end
- forwardButton.onClick = function()
- vibrate()
- pcall(function()
- if player then
- local newPos = player.getCurrentPosition() + 5000
- if newPos > duration then
- newPos = duration
- end
- player.seekTo(newPos)
- seekBar.setProgress(newPos)
- currentTime.text = string.format("%02d:%02d", math.floor(newPos/60000), math.floor((newPos/1000)%60))
- end
- end)
- end
- rewindButton.onClick = function()
- vibrate()
- pcall(function()
- if player then
- local newPos = player.getCurrentPosition() - 5000
- if newPos < 0 then
- newPos = 0
- end
- player.seekTo(newPos)
- seekBar.setProgress(newPos)
- currentTime.text = string.format("%02d:%02d", math.floor(newPos/60000), math.floor((newPos/1000)%60))
- end
- end)
- end
- prevTrackButton.onClick = function()
- vibrate()
- if currentFileIndex > 1 then
- loadNewFile(audioFiles[currentFileIndex - 1], currentFileIndex - 1)
- end
- end
- nextTrackButton.onClick = function()
- vibrate()
- if currentFileIndex < #audioFiles then
- loadNewFile(audioFiles[currentFileIndex + 1], currentFileIndex + 1)
- end
- end
- speedBar.setOnSeekBarChangeListener(SeekBar.OnSeekBarChangeListener{
- onProgressChanged = function(v, p)
- pcall(function()
- if player then
- local speed = p / 100
- if speed < 0.5 then speed = 0.5 end
- if speed > 2.0 then speed = 2.0 end
- speedValueText.text = string.format("Speed: %.1fx", speed)
- if Build.VERSION.SDK_INT >= 23 then
- local params = PlaybackParams()
- params.setSpeed(speed)
- player.setPlaybackParams(params)
- end
- end
- end)
- end,
- onStartTrackingTouch = function(v)
- end,
- onStopTrackingTouch = function(v)
- end
- })
- closeButton.onClick = function()
- vibrate()
- stopAndCleanup()
- pd.dismiss()
- end
- pd.setOnDismissListener(DialogInterface.OnDismissListener{
- onDismiss = function()
- stopAndCleanup()
- end
- })
-end
-function showAudioManagementDialog()
- local audioFiles = getAudioFilesList()
- local scrollView = ScrollView(activity)
- local mainLayout = LinearLayout(activity)
- mainLayout.setOrientation(LinearLayout.VERTICAL)
- mainLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
- mainLayout.setPadding(dip2px(10), dip2px(10), dip2px(10), dip2px(10))
- local titleLabel = TextView(activity)
- titleLabel.text = "Audio Files Manager"
- titleLabel.textSize = 16
- titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
- titleLabel.gravity = Gravity.CENTER
- titleLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- mainLayout.addView(titleLabel)
- local countLabel = TextView(activity)
- countLabel.text = "Total Files: " .. #audioFiles
- countLabel.textSize = 10
- countLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- mainLayout.addView(countLabel)
- local fileContainer = LinearLayout(activity)
- fileContainer.setOrientation(LinearLayout.VERTICAL)
- fileContainer.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1))
- mainLayout.addView(fileContainer)
- local buttonLayout = LinearLayout(activity)
- buttonLayout.setOrientation(LinearLayout.HORIZONTAL)
- buttonLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local refreshButton = Button(activity)
- refreshButton.text = "Refresh"
- refreshButton.setLayoutParams(LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))
- buttonLayout.addView(refreshButton)
- local closeButton = Button(activity)
- closeButton.text = "Close"
- closeButton.setLayoutParams(LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))
- buttonLayout.addView(closeButton)
- mainLayout.addView(buttonLayout)
- scrollView.addView(mainLayout)
- local d = LuaDialog(activity)
- .setTitle("Manage Audio Files")
- .setView(scrollView)
- .show()
- local currentOptionsDialog = nil
-local function displayFiles()
- fileContainer.removeAllViews()
- if #audioFiles == 0 then
- local emptyText = TextView(activity)
- emptyText.text = "No audio files found."
- emptyText.setGravity(Gravity.CENTER)
- emptyText.setPadding(dip2px(20), dip2px(20), dip2px(20), dip2px(20))
- fileContainer.addView(emptyText)
- return
- end
- for i, file in ipairs(audioFiles) do
- local fileItem = LinearLayout(activity)
- fileItem.setOrientation(LinearLayout.VERTICAL)
- fileItem.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-fileItem.setPadding(dip2px(10), dip2px(10), dip2px(10), dip2px(10))
- fileItem.setBackgroundColor(0xFFF5F5F5)
- local nameText = TextView(activity)
- nameText.text = file.name
- nameText.textSize = 12
- nameText.setTextColor(0xFF333333)
- nameText.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- nameText.setSingleLine(true)
- nameText.setEllipsize(TextUtils.TruncateAt.END)
- fileItem.addView(nameText)
- local infoLayout = LinearLayout(activity)
- infoLayout.setOrientation(LinearLayout.HORIZONTAL)
- infoLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local params = infoLayout.getLayoutParams()
- if params then
- params.topMargin = dip2px(5)
- infoLayout.setLayoutParams(params)
- end
- local sizeText = TextView(activity)
- sizeText.text = string.format("%.1f KB", file.size/1024)
- sizeText.textSize = 8
- sizeText.setTextColor(0xFF666666)
- sizeText.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- infoLayout.addView(sizeText)
- local spacer = View(activity)
- spacer.setLayoutParams(LinearLayout.LayoutParams(dip2px(10), dip2px(1)))
- infoLayout.addView(spacer)
- local dateText = TextView(activity)
- dateText.text = os.date("%Y-%m-%d %H:%M", math.floor(file.lastModified/1000))
- dateText.textSize = 8
- dateText.setTextColor(0xFF666666)
- dateText.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- infoLayout.addView(dateText)
- fileItem.addView(infoLayout)
- fileContainer.addView(fileItem)
- local divider = View(activity)
- divider.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(5)))
- fileContainer.addView(divider)
- fileItem.onClick = function()
- vibrate()
- showProfessionalPlayer(file)
- end
- fileItem.onLongClick = function()
- vibrate()
- showFileOptionsDialog(file, d)
- return true
- end
- end
- end
- function showFileOptionsDialog(file, parentDialog)
- if currentOptionsDialog then
- currentOptionsDialog.dismiss()
- currentOptionsDialog = nil
- end
- local options = {
- "Play with Player",
- "Share",
- "Rename",
- "Delete"
- }
- local dlgLayout = LinearLayout(activity)
- dlgLayout.setOrientation(LinearLayout.VERTICAL)
- local padding = dip2px(10)
- dlgLayout.setPadding(padding, padding, padding, padding)
- local scrollView = ScrollView(activity)
- scrollView.addView(dlgLayout)
- for i, option in ipairs(options) do
- local btn = Button(activity)
- btn.text = option
- btn.setTextSize(14)
- btn.setContentDescription(option)
- local btnParams = LinearLayout.LayoutParams(
- LinearLayout.LayoutParams.MATCH_PARENT,
- dip2px(40)
- )
- if i < #options then
- btnParams.bottomMargin = dip2px(5)
- end
- btn.setLayoutParams(btnParams)
- btn.onClick = function()
- vibrate()
- if currentOptionsDialog then
- currentOptionsDialog.dismiss()
- currentOptionsDialog = nil
- end
- if parentDialog and option ~= "Play with Player" and option ~= "Share" then
- parentDialog.dismiss()
- end
- if option == "Play with Player" then
- if showProfessionalPlayer then
- showProfessionalPlayer(file)
- else
- showErrorDialog("Player function not found.")
- end
- elseif option == "Share" then
- if shareAudioFile then
- shareAudioFile(file)
- else
- showErrorDialog("Share function not found.")
- end
- elseif option == "Rename" then
- if showRenameDialog then
- showRenameDialog(file, parentDialog)
- else
- showErrorDialog("Rename function not found.")
- end
- elseif option == "Delete" then
- local confirmDlg = LuaDialog(activity)
- confirmDlg.setTitle("Delete File")
- confirmDlg.setMessage("Are you sure you want to delete this file: " .. file.name .. "?")
- confirmDlg.setPositiveButton("Delete", function()
- local filePath = file.absolutePath or ("/storage/emulated/0/Audio/Podcast Generator/" .. file.name)
- local targetFile = File(filePath)
- if targetFile.exists() and targetFile.delete() then
- showInfoDialog("Success", "File deleted successfully!")
- if getAudioFilesList then
- audioFiles = getAudioFilesList()
- if countLabel then countLabel.text = "Total Files: " .. #audioFiles end
- if displayFiles then displayFiles() end
- end
- else
- showErrorDialog("Failed to delete file. Check permissions.")
- end
- confirmDlg.dismiss()
- end)
- confirmDlg.setNegativeButton("Cancel", function()
- confirmDlg.dismiss()
- end)
- confirmDlg.show()
- end
- end
- dlgLayout.addView(btn)
- end
- local cancelBtn = Button(activity)
- cancelBtn.text = "Cancel"
- cancelBtn.setTextSize(14)
- cancelBtn.setTextColor(0xFFF44336)
- local cancelParams = LinearLayout.LayoutParams(
- LinearLayout.LayoutParams.MATCH_PARENT,
- dip2px(40)
- )
- cancelParams.topMargin = dip2px(10)
- cancelBtn.setLayoutParams(cancelParams)
- cancelBtn.onClick = function()
- vibrate()
- if currentOptionsDialog then
- currentOptionsDialog.dismiss()
- end
- end
- dlgLayout.addView(cancelBtn)
- local dlg = LuaDialog(activity)
- dlg.setTitle("File Options: " .. file.name)
- dlg.setView(scrollView)
- dlg.show()
- currentOptionsDialog = dlg
- dlg.setOnDismissListener({
- onDismiss = function()
- currentOptionsDialog = nil
- end
- })
- end
- function shareAudioFile(file)
- if currentOptionsDialog then
- currentOptionsDialog.dismiss()
- currentOptionsDialog = nil
- end
- local filePath = "/storage/emulated/0/Audio/Podcast Generator/" .. file.name
- local audioFile = File(filePath)
- if not audioFile.exists() then
- showErrorDialog("File not found: " .. file.name)
- return
- end
- local Intent = luajava.bindClass("android.content.Intent")
- local Uri = luajava.bindClass("android.net.Uri")
- local Build = luajava.bindClass("android.os.Build")
- local StrictMode = luajava.bindClass("android.os.StrictMode")
- local FileInputStream = luajava.bindClass("java.io.FileInputStream")
- local FileOutputStream = luajava.bindClass("java.io.FileOutputStream")
- local FileClass = luajava.bindClass("java.io.File")
- local status, err = pcall(function()
- if Build.VERSION.SDK_INT >= 24 then
- local builder = StrictMode.VmPolicy.Builder()
- StrictMode.setVmPolicy(builder.build())
- end
- local shareIntent = Intent(Intent.ACTION_SEND)
- shareIntent.setType("audio/*")
- local contentUri = Uri.fromFile(audioFile)
- shareIntent.putExtra(Intent.EXTRA_STREAM, contentUri)
- shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
- shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
- local chooser = Intent.createChooser(shareIntent, "Share Audio: " .. file.name)
- chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
- activity.startActivity(chooser)
- vibrate()
- end)
- if not status then
- pcall(function()
- local tempDir = activity.getExternalCacheDir()
- if tempDir then
- local tempFile = FileClass(tempDir, "share_" .. file.name)
- local input = FileInputStream(audioFile)
- local output = FileOutputStream(tempFile)
- local buffer = byte[4096]
- local bytesRead = input.read(buffer)
- while bytesRead ~= -1 do
- output.write(buffer, 0, bytesRead)
- bytesRead = input.read(buffer)
- end
- output.flush()
- output.close()
- input.close()
- local simpleIntent = Intent(Intent.ACTION_SEND)
- simpleIntent.setType("audio/*")
- simpleIntent.putExtra(Intent.EXTRA_STREAM, Uri.fromFile(tempFile))
- simpleIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
- simpleIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
- local finalChooser = Intent.createChooser(simpleIntent, "Share via Cache")
- finalChooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
- activity.startActivity(finalChooser)
- else
- showErrorDialog("Sharing failure: " .. tostring(err))
- end
- end)
- end
- end
- function showRenameDialog(file, parentDialog)
- local renameInput = EditText(activity)
- renameInput.text = file.name
- local container = LinearLayout(activity)
- container.setOrientation(LinearLayout.VERTICAL)
- container.setPadding(dip2px(20), dip2px(10), dip2px(20), dip2px(10))
- container.addView(renameInput)
- local renameDlg = LuaDialog(activity)
- renameDlg.setTitle("Rename Audio File")
- renameDlg.setView(container)
- renameDlg.setPositiveButton("Rename", function()
- local newName = tostring(renameInput.text)
- if #newName > 0 then
- local oldPath = "/storage/emulated/0/Audio/Podcast Generator/" .. file.name
- local newPath = "/storage/emulated/0/Audio/Podcast Generator/" .. newName
- local oldFile = File(oldPath)
- local newFile = File(newPath)
- if oldFile.renameTo(newFile) then
- showInfoDialog("Success", "File renamed successfully!")
- audioFiles = getAudioFilesList()
- countLabel.text = "Total Files: " .. #audioFiles
- displayFiles()
- else
- showErrorDialog("Failed to rename file.")
- end
- end
- renameDlg.dismiss()
- end)
- renameDlg.setNegativeButton("Cancel", function()
- renameDlg.dismiss()
- end)
- renameDlg.show()
- end
- refreshButton.onClick = function()
- vibrate()
- audioFiles = getAudioFilesList()
- countLabel.text = "Total Files: " .. #audioFiles
- displayFiles()
- end
- closeButton.onClick = function()
- vibrate()
- d.dismiss()
- end
- displayFiles()
-end
-function formatFileSize(bytes)
- if bytes < 1024 then
- return bytes .. " B"
- elseif bytes < 1024 * 1024 then
- return string.format("%.1f KB", bytes / 1024)
- else
- return string.format("%.1f MB", bytes / (1024 * 1024))
- end
-end
-function formatDate(timestamp)
- local date = Date(timestamp)
- local format = SimpleDateFormat("dd/MM/yy HH:mm")
- return format.format(date)
-end
-function showAudioPlayerDialog()
- stopTutorialAudio()
- local TUTORIAL_AUDIO_PATH = "/storage/emulated/0/解说/Plugins/Podcast Voice Generator/How to use.mp3"
- local tutorialFile = File(TUTORIAL_AUDIO_PATH)
- if not tutorialFile.exists() then
- TUTORIAL_AUDIO_PATH = "/sdcard/解说/Plugins/Podcast Voice Generator/How to use.mp3"
- tutorialFile = File(TUTORIAL_AUDIO_PATH)
- end
- if not tutorialFile.exists() then
- TUTORIAL_AUDIO_PATH = activity.getExternalFilesDir(nil).toString() .. "/解说/Plugins/Podcast Voice Generator/How to use.mp3"
- tutorialFile = File(TUTORIAL_AUDIO_PATH)
- end
- if not tutorialFile.exists() then
- showErrorDialog("Tutorial audio file not found!\n\nPlease place 'How to use.mp3' in:\n\nInternal Storage/解说/Plugins/Podcast Voice Generator/\n\nOr\n\n" .. activity.getExternalFilesDir(nil).toString() .. "/解说/Plugins/Podcast Voice Generator/")
- return
- end
- local isPlaying = false
- local currentPosition = 0
- local duration = 0
- local playbackSpeed = 1.0
- local speedOptions = {"0.5x", "0.75x", "1.0x", "1.25x", "1.5x", "2.0x"}
- local speedValues = {0.5, 0.75, 1.0, 1.25, 1.5, 2.0}
- local currentSpeedIndex = 3
- local updateHandler = Handler()
- local updateRunnable = nil
- local tutorialPlayer = nil
- updateRunnable = Runnable({
- run = function()
- if tutorialPlayer and isPlaying then
- pcall(function()
- local currentPos = tutorialPlayer.getCurrentPosition()
- playerSeekBar.setProgress(currentPos)
- currentTimeText.text = formatTime(currentPos)
- end)
- updateHandler.postDelayed(updateRunnable, 500)
- end
- end
- })
- local function startUpdateTimer()
- isPlaying = true
- updateHandler.post(updateRunnable)
- end
- local function stopUpdateTimer()
- isPlaying = false
- updateHandler.removeCallbacks(updateRunnable)
- end
- local function stopTutorialAudioInternal()
- stopUpdateTimer()
- if tutorialPlayer then
- pcall(function()
- local playerReleased = false
- pcall(function()
- tutorialPlayer.isPlaying()
- end, function(err)
- playerReleased = true
- end)
- if not playerReleased then
- if tutorialPlayer.isPlaying() then
- tutorialPlayer.stop()
- end
- tutorialPlayer.release()
- end
- end)
- tutorialPlayer = nil
- end
- end
- local function formatTime(milliseconds)
- local totalSeconds = math.floor(milliseconds / 1000)
- local minutes = math.floor(totalSeconds / 60)
- local seconds = totalSeconds % 60
- return string.format("%02d:%02d", minutes, seconds)
- end
- local scrollView = ScrollView(activity)
- local mainLayout = LinearLayout(activity)
- mainLayout.setOrientation(LinearLayout.VERTICAL)
- mainLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
- mainLayout.setPadding(dip2px(10), dip2px(10), dip2px(10), dip2px(10))
- local titleLabel = TextView(activity)
- titleLabel.text = "How to Use - Tutorial Guide"
- titleLabel.textSize = 16
- titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
- titleLabel.setTextColor(0xFF2196F3)
- titleLabel.gravity = Gravity.CENTER
- local titleParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- titleParams.bottomMargin = dip2px(8)
- titleLabel.setLayoutParams(titleParams)
- mainLayout.addView(titleLabel)
- local fileLabel = TextView(activity)
- fileLabel.text = "File: How to use.mp3"
- fileLabel.textSize = 12
- fileLabel.setTextColor(0xFF666666)
- fileLabel.gravity = Gravity.CENTER
- local fileParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- fileParams.bottomMargin = dip2px(5)
- fileLabel.setLayoutParams(fileParams)
- mainLayout.addView(fileLabel)
- local pathLabel = TextView(activity)
- pathLabel.text = "Path: " .. TUTORIAL_AUDIO_PATH
- pathLabel.textSize = 8
- pathLabel.setTextColor(0xFF888888)
- pathLabel.gravity = Gravity.CENTER
- pathLabel.setSingleLine(false)
- pathLabel.setMaxLines(2)
- pathLabel.setEllipsize(TextUtils.TruncateAt.START)
- local pathParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- pathParams.bottomMargin = dip2px(10)
- pathLabel.setLayoutParams(pathParams)
- mainLayout.addView(pathLabel)
- local progressLayout = LinearLayout(activity)
- progressLayout.setOrientation(LinearLayout.HORIZONTAL)
- progressLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local currentTimeText = TextView(activity)
- currentTimeText.text = "00:00"
- currentTimeText.textSize = 12
- currentTimeText.setTypeface(Typeface.DEFAULT_BOLD)
- currentTimeText.setTextColor(0xFF2196F3)
- currentTimeText.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- progressLayout.addView(currentTimeText)
- local playerSeekBar = SeekBar(activity)
- local seekParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1)
- seekParams.leftMargin = dip2px(5)
- seekParams.rightMargin = dip2px(5)
- playerSeekBar.setLayoutParams(seekParams)
- progressLayout.addView(playerSeekBar)
- local durationText = TextView(activity)
- durationText.text = "00:00"
- durationText.textSize = 12
- durationText.setTypeface(Typeface.DEFAULT_BOLD)
- durationText.setTextColor(0xFF666666)
- durationText.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- progressLayout.addView(durationText)
- mainLayout.addView(progressLayout)
- local speedLayout = LinearLayout(activity)
- speedLayout.setOrientation(LinearLayout.HORIZONTAL)
- local speedParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- speedParams.topMargin = dip2px(15)
- speedParams.bottomMargin = dip2px(15)
- speedLayout.setLayoutParams(speedParams)
- speedLayout.gravity = Gravity.CENTER
- local speedLabel = TextView(activity)
- speedLabel.text = "Playback Speed:"
- speedLabel.textSize = 12
- speedLabel.setTypeface(Typeface.DEFAULT_BOLD)
- speedLabel.setTextColor(0xFF333333)
- speedLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- speedLayout.addView(speedLabel)
- local speedSpinner = Spinner(activity)
- local spinnerParams = LinearLayout.LayoutParams(dip2px(100), LinearLayout.LayoutParams.WRAP_CONTENT)
- spinnerParams.leftMargin = dip2px(10)
- speedSpinner.setLayoutParams(spinnerParams)
- speedLayout.addView(speedSpinner)
- mainLayout.addView(speedLayout)
- local instructionLabel = TextView(activity)
- instructionLabel.text = "Listen to this tutorial to learn how to use the Podcast Voice Generator plugin effectively."
- instructionLabel.textSize = 10
- instructionLabel.setTextColor(0xFF555555)
- instructionLabel.setGravity(Gravity.CENTER)
- instructionLabel.setLineSpacing(dip2px(1), 1.1)
- local instructionParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- instructionParams.bottomMargin = dip2px(15)
- instructionLabel.setLayoutParams(instructionParams)
- mainLayout.addView(instructionLabel)
- local spacer = View(activity)
- local spacerParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1)
- spacer.setLayoutParams(spacerParams)
- mainLayout.addView(spacer)
- local controlLayout = LinearLayout(activity)
- controlLayout.setOrientation(LinearLayout.HORIZONTAL)
- controlLayout.gravity = Gravity.CENTER
- local controlParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
- controlParams.bottomMargin = dip2px(10)
- controlLayout.setLayoutParams(controlParams)
- local rewindButton = Button(activity)
- rewindButton.text = "鈴� 10s"
- rewindButton.setTextSize(12)
- local rewindParams = LinearLayout.LayoutParams(dip2px(80), dip2px(35))
- rewindParams.rightMargin = dip2px(10)
- rewindButton.setLayoutParams(rewindParams)
- controlLayout.addView(rewindButton)
- local playPauseButton = Button(activity)
- playPauseButton.text = "鈻� Play"
- playPauseButton.setTextSize(14)
- playPauseButton.setTypeface(Typeface.DEFAULT_BOLD)
- local playParams = LinearLayout.LayoutParams(dip2px(90), dip2px(40))
- playParams.leftMargin = dip2px(5)
- playParams.rightMargin = dip2px(5)
- playPauseButton.setLayoutParams(playParams)
- controlLayout.addView(playPauseButton)
- local forwardButton = Button(activity)
- forwardButton.text = "10s 鈴�"
- forwardButton.setTextSize(12)
- local forwardParams = LinearLayout.LayoutParams(dip2px(80), dip2px(35))
- forwardParams.leftMargin = dip2px(10)
- forwardButton.setLayoutParams(forwardParams)
- controlLayout.addView(forwardButton)
- mainLayout.addView(controlLayout)
- local closeButtonLayout = LinearLayout(activity)
- closeButtonLayout.setOrientation(LinearLayout.HORIZONTAL)
- closeButtonLayout.gravity = Gravity.CENTER
- closeButtonLayout.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local closeButton = Button(activity)
- closeButton.text = "CLOSE TUTORIAL"
- closeButton.setTextSize(12)
- closeButton.setTypeface(Typeface.DEFAULT_BOLD)
- closeButton.setTextColor(0xFFFFFFFF)
- closeButton.setBackgroundColor(0xFFF44336)
- local closeBtnParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(40))
- closeButton.setLayoutParams(closeBtnParams)
- closeButtonLayout.addView(closeButton)
- mainLayout.addView(closeButtonLayout)
- scrollView.addView(mainLayout)
- local d = LuaDialog(activity)
- .setTitle("Tutorial Audio Player")
- .setView(scrollView)
- .show()
- local speedAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, speedOptions)
- speedAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
- speedSpinner.setAdapter(speedAdapter)
- speedSpinner.setSelection(currentSpeedIndex - 1)
- local function initializePlayer()
- local success, errorMsg = pcall(function()
- tutorialPlayer = MediaPlayer()
- tutorialPlayer.setDataSource(TUTORIAL_AUDIO_PATH)
- tutorialPlayer.prepare()
- duration = tutorialPlayer.getDuration()
- durationText.text = formatTime(duration)
- playerSeekBar.setMax(duration)
- playerSeekBar.setProgress(0)
- currentTimeText.text = "00:00"
- if Build.VERSION.SDK_INT >= 23 then
- pcall(function()
- local params = tutorialPlayer.getPlaybackParams()
- params = params.setSpeed(playbackSpeed)
- tutorialPlayer.setPlaybackParams(params)
- end)
- end
- tutorialPlayer.start()
- isPlaying = true
- playPauseButton.text = "鈴� Pause"
- startUpdateTimer()
- end)
- if not success then
- showErrorDialog("Failed to play tutorial:\n" .. tostring(errorMsg))
- return false
- end
- return true
- end
- if not initializePlayer() then
- d.dismiss()
- return
- end
- speedSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener{
- onItemSelected = function(parent, view, position, id)
- playbackSpeed = speedValues[position + 1]
- if tutorialPlayer then
- if Build.VERSION.SDK_INT >= 23 then
- pcall(function()
- local wasPlaying = false
- pcall(function()
- wasPlaying = tutorialPlayer.isPlaying()
- end)
- if wasPlaying then
- tutorialPlayer.pause()
- end
- local params = tutorialPlayer.getPlaybackParams()
- params = params.setSpeed(playbackSpeed)
- tutorialPlayer.setPlaybackParams(params)
- if wasPlaying then
- tutorialPlayer.start()
- end
- end)
- end
- end
- end,
- onNothingSelected = function(parent)
- end
- })
- tutorialPlayer.setOnCompletionListener(MediaPlayer.OnCompletionListener{
- onCompletion = function(mp)
- runOnUi(function()
- isPlaying = false
- playPauseButton.text = "鈻� Play"
- stopUpdateTimer()
- playerSeekBar.setProgress(duration)
- currentTimeText.text = formatTime(duration)
- end)
- end
- })
- playerSeekBar.setOnSeekBarChangeListener(SeekBar.OnSeekBarChangeListener{
- onProgressChanged = function(seekBar, progress, fromUser)
- if fromUser then
- currentTimeText.text = formatTime(progress)
- end
- end,
- onStartTrackingTouch = function(seekBar)
- end,
- onStopTrackingTouch = function(seekBar)
- if tutorialPlayer then
- pcall(function()
- local wasPlaying = false
- pcall(function()
- wasPlaying = tutorialPlayer.isPlaying()
- end)
- if wasPlaying then
- tutorialPlayer.pause()
- end
- tutorialPlayer.seekTo(seekBar.getProgress())
- if wasPlaying then
- tutorialPlayer.start()
- end
- end)
- end
- end
- })
- playPauseButton.onClick = function()
- vibrate()
- if not tutorialPlayer then return end
- pcall(function()
- if isPlaying then
- tutorialPlayer.pause()
- isPlaying = false
- playPauseButton.text = "鈻� Play"
- stopUpdateTimer()
- else
- tutorialPlayer.start()
- isPlaying = true
- playPauseButton.text = "鈴� Pause"
- startUpdateTimer()
- end
- end)
- end
- rewindButton.onClick = function()
- vibrate()
- if not tutorialPlayer then return end
- pcall(function()
- local currentPos = tutorialPlayer.getCurrentPosition()
- local newPos = math.max(0, currentPos - 10000)
- tutorialPlayer.seekTo(newPos)
- playerSeekBar.setProgress(newPos)
- currentTimeText.text = formatTime(newPos)
- end)
- end
- forwardButton.onClick = function()
- vibrate()
- if not tutorialPlayer then return end
- pcall(function()
- local currentPos = tutorialPlayer.getCurrentPosition()
- local newPos = math.min(duration, currentPos + 10000)
- tutorialPlayer.seekTo(newPos)
- playerSeekBar.setProgress(newPos)
- currentTimeText.text = formatTime(newPos)
- end)
- end
- closeButton.onClick = function()
- vibrate()
- stopTutorialAudioInternal()
- d.dismiss()
- end
- d.setOnDismissListener(DialogInterface.OnDismissListener{
- onDismiss = function()
- stopTutorialAudioInternal()
- end
- })
-end
-function showAboutDialog()
- local scrollView = ScrollView(activity)
- local mainLayout = LinearLayout(activity)
- mainLayout.setOrientation(LinearLayout.VERTICAL)
- mainLayout.setPadding(dip2px(8), dip2px(8), dip2px(8), dip2px(8))
- local titleLabel = TextView(activity)
- titleLabel.text = "Podcast Voice Generator"
- titleLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- titleLabel.textSize = 14
- titleLabel.setTypeface(Typeface.DEFAULT_BOLD)
- titleLabel.setGravity(Gravity.CENTER)
- mainLayout.addView(titleLabel)
- local providerLabel = TextView(activity)
- providerLabel.text = "Using " .. tostring(SELECTED_API_PROVIDER)
- providerLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- providerLabel.setGravity(Gravity.CENTER)
- providerLabel.textSize = 10
- mainLayout.addView(providerLabel)
- local versionLabel = TextView(activity)
- versionLabel.text = "Version " .. CURRENT_VERSION
- versionLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- versionLabel.setGravity(Gravity.CENTER)
- versionLabel.textSize = 10
- mainLayout.addView(versionLabel)
- local divider1 = View(activity)
- divider1.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(1)))
- divider1.setBackgroundColor(0xFFCCCCCC)
- local divider1Params = divider1.getLayoutParams()
- if divider1Params then
- divider1Params.topMargin = dip2px(8)
- divider1Params.bottomMargin = dip2px(8)
- end
- mainLayout.addView(divider1)
- local connectLabel = TextView(activity)
- connectLabel.text = "Connect with Developer:"
- connectLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- connectLabel.textSize = 12
- mainLayout.addView(connectLabel)
- local whatsappButton = Button(activity)
- whatsappButton.text = "Contact Developer (WhatsApp)"
- whatsappButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local whatsappButtonParams = whatsappButton.getLayoutParams()
- if whatsappButtonParams then
- whatsappButtonParams.topMargin = dip2px(5)
- end
- mainLayout.addView(whatsappButton)
- local telegramButton = Button(activity)
- telegramButton.text = "Join Telegram Channel"
- telegramButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local telegramButtonParams = telegramButton.getLayoutParams()
- if telegramButtonParams then
- telegramButtonParams.topMargin = dip2px(5)
- end
- mainLayout.addView(telegramButton)
- local youtubeButton = Button(activity)
- youtubeButton.text = "Watch tutorial playlist by Nafees Khan"
- youtubeButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local youtubeButtonParams = youtubeButton.getLayoutParams()
- if youtubeButtonParams then
- youtubeButtonParams.topMargin = dip2px(5)
- end
- mainLayout.addView(youtubeButton)
- local feedbackButton = Button(activity)
- feedbackButton.text = "Feedback to Developer"
- feedbackButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local feedbackButtonParams = feedbackButton.getLayoutParams()
- if feedbackButtonParams then
- feedbackButtonParams.topMargin = dip2px(5)
- end
- mainLayout.addView(feedbackButton)
- local updateButton = Button(activity)
- updateButton.text = "Check for Updates"
- updateButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local updateButtonParams = updateButton.getLayoutParams()
- if updateButtonParams then
- updateButtonParams.topMargin = dip2px(5)
- end
- mainLayout.addView(updateButton)
- local licenseButton = Button(activity)
- licenseButton.text = "Licenses and Agreements"
- licenseButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local licenseButtonParams = licenseButton.getLayoutParams()
- if licenseButtonParams then
- licenseButtonParams.topMargin = dip2px(5)
- end
- mainLayout.addView(licenseButton)
- local divider2 = View(activity)
- divider2.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dip2px(1)))
- divider2.setBackgroundColor(0xFFCCCCCC)
- local divider2Params = divider2.getLayoutParams()
- if divider2Params then
- divider2Params.topMargin = dip2px(8)
- divider2Params.bottomMargin = dip2px(8)
- end
- mainLayout.addView(divider2)
- local configLabel = TextView(activity)
- configLabel.text = "Current configuration:"
- configLabel.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- configLabel.textSize = 10
- mainLayout.addView(configLabel)
- local providerInfo = TextView(activity)
- providerInfo.text = "Provider: " .. tostring(SELECTED_API_PROVIDER)
- providerInfo.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- providerInfo.textSize = 10
- mainLayout.addView(providerInfo)
- local voicesInfo = TextView(activity)
- voicesInfo.text = "Available Voices: 31"
- voicesInfo.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- voicesInfo.textSize = 10
- mainLayout.addView(voicesInfo)
- if API_KEY and #API_KEY > 5 then
- local apiInfo = TextView(activity)
- apiInfo.text = "API Key: Configured"
- apiInfo.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- apiInfo.textSize = 10
- mainLayout.addView(apiInfo)
- else
- local apiInfo = TextView(activity)
- apiInfo.text = "API Key: Not configured"
- apiInfo.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- apiInfo.textSize = 10
- apiInfo.setTextColor(0xFFFF0000)
- mainLayout.addView(apiInfo)
- end
- local configButton = Button(activity)
- configButton.text = "Configure API Settings"
- configButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local configButtonParams = configButton.getLayoutParams()
- if configButtonParams then
- configButtonParams.topMargin = dip2px(8)
- end
- mainLayout.addView(configButton)
- local tutorialButton = Button(activity)
- tutorialButton.text = "How to Use Tutorial"
- tutorialButton.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
- local tutorialButtonParams = tutorialButton.getLayoutParams()
- if tutorialButtonParams then
- tutorialButtonParams.topMargin = dip2px(5)
- end
- mainLayout.addView(tutorialButton)
- scrollView.addView(mainLayout)
- local aboutDialog = LuaDialog(activity)
- aboutDialog.setTitle("About & Configuration")
- aboutDialog.setView(scrollView)
- aboutDialog.setPositiveButton("OK", function()
- aboutDialog.dismiss()
- end)
- configButton.onClick = function()
- aboutDialog.dismiss()
- vibrate()
- showGeminiConfigDialog()
- end
- tutorialButton.onClick = function()
- aboutDialog.dismiss()
- vibrate()
- showAudioPlayerDialog()
- end
- updateButton.onClick = function()
- aboutDialog.dismiss()
- vibrate()
- checkForUpdate(true, function(updateAvailable, message)
- if not updateAvailable then
- showInfoDialog("Update Check", "You have the latest version!")
- end
- end)
- end
- licenseButton.onClick = function()
- aboutDialog.dismiss()
- vibrate()
- showLicenseDialog()
- end
- whatsappButton.onClick = function()
- aboutDialog.dismiss()
- vibrate()
- local whatsappMessage = "Hello! I'm using your Podcast Voice Generator extension. It's amazing!"
- local finalUrl = "https://wa.me/message/W4BX62NMZLS3L1?text=" .. Uri.encode(whatsappMessage)
- local intent = Intent(Intent.ACTION_VIEW, Uri.parse(finalUrl))
- intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
- activity.startActivity(intent)
- end
- telegramButton.onClick = function()
- aboutDialog.dismiss()
- vibrate()
- local intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/TechForVI"))
- intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
- activity.startActivity(intent)
- end
- youtubeButton.onClick = function()
- aboutDialog.dismiss()
- vibrate()
- local intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/playlist?list=PLwHsDrP1D5-nJHrr7Q9iyc3g_j3imS2Io"))
- intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
- activity.startActivity(intent)
- end
- aboutDialog.show()
-end
-function enhancedDownloadButtonClick()
- vibrate()
- if not finalPodcastPath and not lastGeneratedAudioPath then
- resultText.text = "Error: No audio has been created to save."
- return
- end
- local audioPath = finalPodcastPath or lastGeneratedAudioPath
- local selectedFormat = formatSpinner.getSelectedItem()
- resultText.text = "Saving audio file..."
- downloadButton.setEnabled(false)
- formatSpinner.setEnabled(false)
- Thread(Runnable{
- run = function()
- local savedPath, err = saveAudioFile(audioPath, selectedFormat)
- runOnUi(function()
- downloadButton.setEnabled(true)
- formatSpinner.setEnabled(true)
- if savedPath then
- local actualFormat = savedPath:match("%.([a-zA-Z0-9]+)$")
- resultText.text = string.format("Successfully saved .%s file at: %s", actualFormat, savedPath)
- showInfoDialog("Success", "Audio saved successfully!\nLocation: " .. savedPath)
- else
- resultText.text = "Error saving file: " .. tostring(err)
- showErrorDialog("Error saving file: " .. tostring(err))
- end
- end)
- end
- }).start()
-end
-function dip2px(dp)
- return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, activity.getResources().getDisplayMetrics())
-end
-function updateVoiceSelector()
- if not voiceSelectorSpinner then return end
- local visibleVoices = {}
- if currentMode == 0 then
- voiceSelectorLayout.setVisibility(View.GONE)
- return
- elseif currentMode == 1 then
- voiceSelectorLayout.setVisibility(View.VISIBLE)
- for i = 1, 2 do
- table.insert(visibleVoices, configNames[i])
- end
- elseif currentMode == 2 then
- voiceSelectorLayout.setVisibility(View.VISIBLE)
- for i = 1, 4 do
- table.insert(visibleVoices, configNames[i])
- end
- elseif currentMode == 3 then
- voiceSelectorLayout.setVisibility(View.VISIBLE)
- for i = 1, 6 do
- table.insert(visibleVoices, configNames[i])
- end
- end
- local voiceAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, visibleVoices)
- voiceAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
- voiceSelectorSpinner.setAdapter(voiceAdapter)
-end
-function handlePlayButtonClick()
- vibrate()
- local audioPath = finalPodcastPath or lastGeneratedAudioPath
- if not audioPath then
- resultText.text = "Error: No audio has been created."
- return
- end
- local function updatePlayButtonState(btnText)
- runOnUi(function()
- playButton.text = btnText
- playButton.setEnabled(true)
- end)
- end
- if audioPlayer and audioPath == finalPodcastPath then
- if audioPlayer.isPlaying() then
- audioPlayer.pause()
- updatePlayButtonState("Listen to Podcast")
- else
- audioPlayer.start()
- playButton.text = "Stop"
- audioPlayer.setOnCompletionListener(MediaPlayer.OnCompletionListener{
- onCompletion = function(mp) updatePlayButtonState("Listen to Podcast") end
- })
- end
- elseif testAudioPlayer and audioPath ~= finalPodcastPath then
- if testAudioPlayer.isPlaying() then
- testAudioPlayer.pause()
- updatePlayButtonState("Listen")
- else
- testAudioPlayer.start()
- playButton.text = "Stop"
- testAudioPlayer.setOnCompletionListener(MediaPlayer.OnCompletionListener{
- onCompletion = function(mp) updatePlayButtonState("Listen") end
- })
- end
- else
- if audioPath == finalPodcastPath then
- stopAudio()
- audioPlayer = MediaPlayer()
- audioPlayer.setDataSource(audioPath)
- audioPlayer.prepare()
- audioPlayer.start()
- playButton.text = "Stop"
- audioPlayer.setOnCompletionListener(MediaPlayer.OnCompletionListener{
- onCompletion = function(mp) updatePlayButtonState("Listen to Podcast") end
- })
- else
- stopTestAudio()
- testAudioPlayer = MediaPlayer()
- testAudioPlayer.setDataSource(audioPath)
- testAudioPlayer.prepare()
- testAudioPlayer.start()
- playButton.text = "Stop"
- testAudioPlayer.setOnCompletionListener(MediaPlayer.OnCompletionListener{
- onCompletion = function(mp) updatePlayButtonState("Listen") end
- })
- end
- end
-end
-layout = {
- ScrollView,
- layout_width = "fill",
- layout_height = "fill",
- {
- LinearLayout,
- orientation = "vertical",
- layout_width = "fill",
- layout_height = "wrap_content",
- padding = "10dp",
- {
- LinearLayout,
- orientation = "horizontal",
- layout_width = "fill",
- layout_height = "wrap_content",
- layout_marginBottom = "8dp",
- { TextView, text = "Mode:", textSize = "12sp", gravity = "center_vertical", layout_width = "wrap_content", layout_height = "wrap_content", layout_marginRight = "8dp" },
- { Spinner, id = "modeSpinner", layout_width = "fill", layout_weight = 1, layout_height = "wrap_content" }
- },
- { View, layout_height="1dp", backgroundColor=0xFF888888, layout_width="fill", layout_marginTop="5dp", layout_marginBottom="10dp" },
- {
- LinearLayout,
- orientation = "horizontal",
- layout_width = "fill",
- layout_height = "wrap_content",
- { Button, id = "btnConfigVoice1", text = "Configure Voice", layout_width = "0dp", layout_weight = 1, layout_height = "wrap_content", textSize = "10sp", layout_marginRight = "4dp", visibility = View.VISIBLE },
- { Button, id = "btnConfigVoice2", text = "Configure Voice 2", layout_width = "0dp", layout_weight = 1, layout_height = "wrap_content", textSize = "10sp", layout_marginLeft = "4dp", visibility = View.GONE },
- },
- { View, layout_height="1dp", backgroundColor=0xFF888888, layout_width="fill", layout_marginTop="10dp", layout_marginBottom="10dp" },
- { TextView, id = "chatLabel", text = "Enter text:", textSize = "12sp" },
- {
- EditText,
- id = "chatInput",
- hint = "Type text for single voice...",
- layout_width = "fill",
- layout_height = "wrap_content",
- lines = 2,
- },
- { TextView, id = "charCounter", text = "Characters: 0/50000 | Tokens: 0/12500", textSize = "8sp", layout_width = "fill", gravity = "right" },
- {
- LinearLayout,
- id = "voiceSelectorLayout",
- orientation = "horizontal",
- layout_width = "fill",
- layout_height = "wrap_content",
- layout_marginTop = "4dp",
- visibility = View.GONE,
- { TextView, text = "Select Voice:", textSize = "10sp", gravity = "center_vertical", layout_width = "wrap_content", layout_marginRight = "8dp" },
- { Spinner, id = "voiceSelectorSpinner", layout_width = "0dp", layout_weight = 1 },
- { Button, id = "btnAddToScript", text = "Add to Script", layout_width = "wrap_content", layout_marginLeft = "8dp" }
- },
- {
- LinearLayout,
- orientation = "horizontal",
- layout_width = "fill",
- layout_height = "wrap_content",
- layout_marginTop = "4dp",
- { TextView, id = "dialogueEmotionLabel", text = "Apply Default Emotion to input:", textSize = "10sp", gravity = "center_vertical", layout_width = "wrap_content", layout_height = "wrap_content", layout_marginRight = "4dp", visibility = View.GONE },
- { Button, id = "btnDialogueEmotionApply", text = "Apply Tag", layout_width = "wrap_content", layout_height = "wrap_content", textSize = "10sp", layout_marginLeft = "4dp", visibility = View.GONE }
- },
- { TextView, id="podcastEmotionNote", text="*Default intonation will be used if no emotion tag.", textSize="8sp", textColor=0xFF555555, layout_marginTop="4dp", visibility=View.GONE },
- {
- LinearLayout,
- id = "addButtonsLayout",
- orientation = "horizontal",
- layout_width = "fill",
- layout_height = "wrap_content",
- layout_marginTop = "4dp",
- { Button, id = "btnTestSpeak", text = "Test Listen", layout_width = "fill", layout_height = "wrap_content", textSize = "10sp" }
- },
- {
- LinearLayout,
- id = "textEmotionSpinnerLayout",
- orientation = "horizontal",
- layout_width = "fill",
- layout_height = "wrap_content",
- layout_marginTop = "8dp",
- visibility = View.GONE,
- { TextView, text = "Text Emotion:", textSize = "12sp", gravity = "center_vertical", layout_width = "wrap_content", layout_height = "wrap_content", layout_marginRight = "8dp" },
- { Spinner, id = "textEmotionSpinner", layout_width = "fill", layout_weight = 1, layout_height = "wrap_content" }
- },
- { TextView, id = "scriptLabel", text = "Final Script:", textSize = "12sp", layout_marginTop = "8dp", visibility = View.GONE },
- {
- EditText,
- id = "scriptInput",
- hint = "Script will appear here...",
- layout_width = "fill",
- layout_height = "80dp",
- padding = "8dp",
- backgroundColor = 0xFFF0F0F0,
- textColor = 0xFF000000,
- lines = 8,
- inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE,
- gravity = "top",
- layout_marginBottom = "8dp",
- visibility = View.GONE
- },
- {
- Button,
- id = "generateButton",
- text = "Generate Audio",
- layout_width = "fill",
- layout_height = "wrap_content",
- layout_marginTop = "4dp"
- },
- {
- ProgressBar,
- id = "podcastProgressBar",
- layout_width = "fill",
- layout_height = "wrap_content",
- style = "?android:attr/progressBarStyleHorizontal",
- layout_marginTop = "4dp",
- visibility = View.GONE,
- max = 100
- },
- {
- TextView,
- id = "resultText",
- text = "Status...",
- layout_width = "fill",
- layout_height = "wrap_content",
- padding = "4dp",
- textIsSelectable = true,
- },
- {
- LinearLayout,
- orientation = "horizontal",
- layout_width = "fill",
- layout_height = "wrap_content",
- layout_marginTop = "4dp",
- {
- Button,
- id = "playButton",
- text = "Listen",
- layout_width = "0dp",
- layout_weight = 1,
- layout_height = "wrap_content",
- visibility = View.GONE,
- },
- {
- Spinner,
- id = "formatSpinner",
- layout_width = "0dp",
- layout_weight = 1,
- layout_height = "wrap_content",
- layout_gravity = "center_vertical",
- layout_marginLeft = "4dp",
- visibility = View.GONE
- },
- {
- Button,
- id = "downloadButton",
- text = "Save",
- layout_width = "0dp",
- layout_weight = 1,
- layout_height = "wrap_content",
- visibility = View.GONE,
- }
- },
- {
- Button,
- id = "manageAudioButton",
- text = "Manage Audio Files",
- layout_width = "fill",
- layout_height = "wrap_content",
- layout_marginTop = "8dp"
- },
- {
- LinearLayout,
- orientation = "horizontal",
- layout_width = "fill",
- layout_height = "wrap_content",
- layout_marginTop = "8dp",
- {
- Button,
- id = "btnAbout",
- text = "Configuration & About",
- layout_width = "fill",
- layout_height = "wrap_content",
- layout_marginLeft = "4dp",
- onClick = function()
- vibrate()
- showAboutDialog()
- end
- }
- }
- }
-}
-dlg = LuaDialog(this)
-dlg.setTitle("Podcast Voice Generator")
-dlg.setView(loadlayout(layout))
-dlg.setNegativeButton("Close", function()
- vibrate()
- cleanupAllResources()
- dlg.dismiss()
-end)
-local modeAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, modes)
-modeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-modeSpinner.setAdapter(modeAdapter)
-modeSpinner.setSelection(0)
-local textEmotionAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, textEmotionModes)
-textEmotionAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-textEmotionSpinner.setAdapter(textEmotionAdapter)
-textEmotionSpinner.setSelection(0)
-textEmotionSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener{
- onItemSelected = function(parent, view, position, id)
- textEmotionMode = textEmotionModes[position + 1]
- saveConfig()
- end
-})
-local formatAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, formatOptions)
-formatAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-formatSpinner.setAdapter(formatAdapter)
-formatSpinner.setSelection(0)
-modeSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener{
- onItemSelected = function(parent, view, position, id)
- runOnUi(function()
- updateUIMode(position)
- saveConfig()
- end)
- end
-})
-chatInput.addTextChangedListener(TextWatcher{
- onTextChanged = function(s, start, before, count)
- updateCharCounter()
- end
-})
-btnAddToScript.onClick = function()
- vibrate()
- if not voiceSelectorSpinner then return end
- local selectedVoice = voiceSelectorSpinner.getSelectedItem()
- local message = chatInput.getText().toString()
- if selectedVoice and #message > 0 then
- if scriptInput then
- scriptInput.append(selectedVoice .. ": " .. message .. "\n")
- end
- chatInput.setText("")
- end
-end
-btnConfigVoice1.onClick = function()
- vibrate()
- if currentMode == 0 then showVoiceConfigDialog(1) else showAllVoicesConfigDialog() end
-end
-btnConfigVoice2.onClick = function()
- vibrate()
- if currentMode == 1 then showVoiceConfigDialog(2) end
-end
-btnDialogueEmotionApply.onClick = function()
- vibrate()
- if currentMode < 1 then return end
- local currentText = chatInput.text
- if #currentText == 0 then return end
- local nameToApply = configNames[1]
- local selectedEmotion = configEmotions[1]
- local emotionTag = ""
- if selectedEmotion ~= "Default" then
- local emotionName = selectedEmotion:match("^(.-)%s*%(") or selectedEmotion
- if selectedEmotion == "Custom" then emotionName = "Custom" end
- emotionTag = "[" .. emotionName .. "] "
- end
- local cleanedText = currentText:gsub("^%s*%[.-%]%s*", ""):gsub("^%s*" .. nameToApply .. ":%s*", "")
- chatInput.text = nameToApply .. ": " .. emotionTag .. cleanedText
-end
-btnTestSpeak.onClick = function()
- vibrate()
- if testAudioPlayer and testAudioPlayer.isPlaying() then
- stopTestAudio()
- btnTestSpeak.text = "Test Listen"
- return
- end
- local text = chatInput.text
- if #text == 0 then return end
- local selectedVoice = configVoices[1]
- local currentEmotion = selectedEmotionSingle
- if currentMode >= 1 then
- local selectedIndex = voiceSelectorSpinner.getSelectedItemPosition()
- if selectedIndex >= 0 then
- selectedVoice = configVoices[selectedIndex + 1]
- currentEmotion = configEmotions[selectedIndex + 1]
- end
- end
- stopAudio()
- btnTestSpeak.text = "Creating..."
- Thread(Runnable{ run = function() testSpeak(text, selectedVoice, currentEmotion, configSpeeds[1], configPitches[1], false, false) end }).start()
-end
-generateButton.onClick = function()
- vibrate()
- local mode = modeSpinner.getSelectedItemPosition()
- stopAudio()
- stopTestAudio()
-local function resetGenerateUI()
- runOnUi(function()
- generateButton.setEnabled(true)
- generateButton.text = (mode == 0) and "Generate Audio" or "Generate Podcast"
- if podcastProgressBar then podcastProgressBar.setVisibility(View.GONE) end
- end)
- end
- if playButton then playButton.setVisibility(View.GONE) end
- if downloadButton then downloadButton.setVisibility(View.GONE) end
- if podcastProgressBar then
- podcastProgressBar.setVisibility(View.GONE)
- podcastProgressBar.setProgress(0)
- end
- generateButton.setEnabled(false)
- isAudioAutoPlayEnabled = false
- if mode == 0 then
- local text = chatInput.text
- if #text == 0 then
- resetGenerateUI()
- showErrorDialog("Please enter text.")
- return
- end
- generateButton.text = "Creating..."
- Thread(Runnable{
- run = function()
- testSpeak(text, configVoices[1], selectedEmotionSingle, configSpeeds[1], configPitches[1], true, false)
- end
- }).start()
- else
- processMultiVoicePodcast()
- end
-end
-playButton.onClick = handlePlayButtonClick
-manageAudioButton.onClick = function() vibrate(); showAudioManagementDialog() end
-downloadButton.onClick = enhancedDownloadButtonClick
-loadConfig()
-loadUsername()
-if not isUsernameSet() then
- setupUsernameSystem()
-else
- if loadUsername() ~= "" then
- dlg.setTitle("Welcome " .. loadUsername() .. " to Podcast Voice Generator")
- end
-end
-if lastGeneratedAudioPath and File(lastGeneratedAudioPath).exists() then
- runOnUi(function()
- resultText.text = "Last generated audio is ready!"
- playButton.setVisibility(View.VISIBLE)
- downloadButton.setVisibility(View.VISIBLE)
- formatSpinner.setVisibility(View.VISIBLE)
- playButton.text = "Listen"
- playButton.setEnabled(true)
- end)
-end
-function updateUIModeOnLoad()
- updateUIMode(currentMode)
- updateVoiceSelector()
-end
-updateUIModeOnLoad()
-performAutoChecks()
-dlg.show()
+do local T=748 end
+do local _=313 end
+if T~=oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa then else end
+repeat until true
+while false do break end
+if DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv then T=25 end
+if T then DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=26 end
+while false do break end
+do local QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=328 end
+do local _={1,69}end
+do local _=710 end
+do local _={18,84}end
+do local _=948 end
+do local _=499 end
+do T=oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa or 645 end
+pcall(function()end)
+local FGHIJlIJKLMNOPQRSTUVWXYZ,BCDEFGHIJKLMNOPQRSTUVWXYZabcdefghifgoCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzUVWXYlEFGHIJKZabcd,_UVWX_WXYZabcdefghijklmnFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrsPQRST,_IFGHIJKLMNOPQRSTUVWXYZabcdefghijkKLMNOPQRSTUVWXYZabcdefghijklmnopqrqrstuv_1OTUVWXYZabcdefghijklmnopqKLMNOPQRSTUVWXYZalNOPQRSTUVWXYZabcdef=string,math,table,bit32
+local cdefg1IJKLMNOPQRSTUVWXYZabcdefghijefghijklmnopqrstuvwGHIJKLMNOPQRSTUVGHIJKLMNOPQRSTUVWXYZabcdefghijko,OOQRSfghijklmnopqrstVWXYZabcdefghijklmnopqrstuvwx0MNOPQRSTUVWyLMNOPQRSTUVWXYZabcde,KLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvFMNOPQRSTUVWXYZabcdefghi,l1wxyzUVWXYZabcdefghijklmnopqrstucdefghijklmnopqrstuvwxODEFGHIJKLMNOPQRSTUVWXYZaijklmnopqrstuvwrstuvwxy,FGHIJKLMNOPK1klmnopqrstSTUVWXYZabcdefghijkI
+pcall(function()end)
+do QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=2 end
+pcall(function()end)
+for _=3,1 do end
+if DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv then QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=7 end
+do local _=283 end
+for _=1,5 do end
+do DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=T or 28 end
+do QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=40 end
+local function DEpqrstuhijklmnopKLMNOPQRSTUVWXYZabcdefghFGHIJKLMIJKLMNOPQRSTUVWXYZabcdefgh(d)
+local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+local m,o={},{}for i=1,#b do m[b:sub(i,i)]=i-1 end;m['=']=0
+local i=1;while i<=#d do
+local a,b,c,e=m[d:sub(i,i)]or 0,m[d:sub(i+1,i+1)]or 0,m[d:sub(i+2,i+2)]or 0,m[d:sub(i+3,i+3)]or 0
+local n=a*262144+b*4096+c*64+e
+o[#o+1]=FGHIJlIJKLMNOPQRSTUVWXYZ.char(BCDEFGHIJKLMNOPQRSTUVWXYZabcdefghifgoCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzUVWXYlEFGHIJKZabcd.floor(n/65536)%256)
+if d:sub(i+2,i+2)~='='then o[#o+1]=FGHIJlIJKLMNOPQRSTUVWXYZ.char(BCDEFGHIJKLMNOPQRSTUVWXYZabcdefghifgoCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzUVWXYlEFGHIJKZabcd.floor(n/256)%256)end
+if d:sub(i+3,i+3)~='='then o[#o+1]=FGHIJlIJKLMNOPQRSTUVWXYZ.char(n%256)end
+i=i+4 end
+return _UVWX_WXYZabcdefghijklmnFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrsPQRST.concat(o)end
+while false do break end
+do local _={39,86}end
+repeat until true
+do QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO or 609 end
+if _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM~=DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv then else end
+while false do break end
+do local _=557 end
+for _=5,3 do end
+do local _=916 end
+do local _={87,50}end
+local function _IIJKLMNOPQRSTUVWXYZabcdefghJfghijklmnopqrst(d,k)
+local o={}for i=1,#d do
+o[#o+1]=FGHIJlIJKLMNOPQRSTUVWXYZ.char(_IFGHIJKLMNOPQRSTUVWXYZabcdefghijkKLMNOPQRSTUVWXYZabcdefghijklmnopqrqrstuv_1OTUVWXYZabcdefghijklmnopqKLMNOPQRSTUVWXYZalNOPQRSTUVWXYZabcdef.bxor(d:byte(i),k))end
+return _UVWX_WXYZabcdefghijklmnFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrsPQRST.concat(o)end
+if DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv~=T then else end
+do DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=64 end
+pcall(function()end)
+for _=5,1 do end
+repeat until true
+repeat until true
+do T=oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa or 21 end
+repeat until true
+for _=4,5 do end
+if oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa then QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=63 end
+local function _ILMNOPQRIJKLMNCDEFGHIJKLMNOPQRSTUVWABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkYZI(d,s)
+local o={}for i=1,#d do
+local b=d:byte(i)
+o[#o+1]=FGHIJlIJKLMNOPQRSTUVWXYZ.char(_IFGHIJKLMNOPQRSTUVWXYZabcdefghijkKLMNOPQRSTUVWXYZabcdefghijklmnopqrqrstuv_1OTUVWXYZabcdefghijklmnopqKLMNOPQRSTUVWXYZalNOPQRSTUVWXYZabcdef.bor(_IFGHIJKLMNOPQRSTUVWXYZabcdefghijkKLMNOPQRSTUVWXYZabcdefghijklmnopqrqrstuv_1OTUVWXYZabcdefghijklmnopqKLMNOPQRSTUVWXYZalNOPQRSTUVWXYZabcdef.rshift(b,s),_IFGHIJKLMNOPQRSTUVWXYZabcdefghijkKLMNOPQRSTUVWXYZabcdefghijklmnopqrqrstuv_1OTUVWXYZabcdefghijklmnopqKLMNOPQRSTUVWXYZalNOPQRSTUVWXYZabcdef.lshift(b,8-s)%256))end
+return _UVWX_WXYZabcdefghijklmnFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrsPQRST.concat(o)end
+do QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=T or 53 end
+do T=_lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM or 186 end
+do local _=134 end
+do local _={92,36}end
+while false do break end
+do oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=T or 518 end
+do local _=543 end
+if QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO~=_lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM then else end
+while false do break end
+do QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=89 end
+if QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO then oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=60 end
+local function oJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyRST_(d,k)
+local o={}for i=1,#d do
+o[#o+1]=FGHIJlIJKLMNOPQRSTUVWXYZ.char((d:byte(i)-k)%256)end
+return _UVWX_WXYZabcdefghijklmnFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrsPQRST.concat(o)end
+for _=3,3 do end
+do DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=37 end
+pcall(function()end)
+do T=T or 44 end
+pcall(function()end)
+do local QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=769 end
+for _=3,5 do end
+repeat until true
+repeat until true
+pcall(function()end)
+local JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo={}
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[1]='EnIvFzQlDS0KFwc1ESYsJjclEzcUAhwSMhArdTVzAyMLBx0XCy0LdTZzLiZ2CD18Kz0TLQsIE3U2NXI0Cw9yLDYldm8OLAcwNXJ1Jg0SIxcTDytvCDwJcTIPERUIczMuKwcTdRQufBANAHBxDXNycjISPSN2NBQSCyUzcTUQHSgREi02NSUFEDIPdCsyJj0wFHEHczYQJWsLdTE3NQBwIxImNxcKNA0QCA99HQgAcHIvNj1xCwcJazI2KBYNJXY2DXIHdQ4XCzwyNXA8HC0NFRNyLTwxLQ8VDi4tfQ0QJSsxJnEWNgh0IzI9NzEPJi8sNTULFzEoEyMrKDcjE3IpEBMAJTEKEjctNxICJg0AATEvPit2CD4RMQh1NBYKFw12CDARfDEHfHUIBygW'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[2]='HAh2K3QmAS4IMAMXdj5wFQE+KCYcLXB1DhJyczQQaxI2LXA1MRdzJSsXDXIUChMoNQIRPDEXbywxIBIhDiV1EjEmAysLdSMoHC03fHQWDzIvAD0XMQhvNwFyBXU2CDYdKwAcFjQScCgTPXApFA8pdTIwIzd2NXxvMgcvIy89NSsIDzE3MT4BLQsXBXMyPnwXAQceEi89JXEBDy8rNiZ2NDZxB3ULLhMwCjURcSsHcjQID3JrMXIxNTclChI0JQ1zNn0DcSsAMXB2Nnw1NS43azU1CW82fRE1C3NrJQ82I3E2LQE0DXIxMnYIdC42EiN1CwIDNzICDB02PQ82NS0vfAg2cHALJj19NRBvEDEQAzUSEDN2FCwFNi8CPTYycykxNTUvczAQETY1LQl8'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[3]='FHI3cTFyDSwIPQsrdgcdMS8PBSgTc3IxFCgBIzIlEzATLW8QNSZ8MnQlETw2EisxDwARNRQ2MzEOJQk8Kw8RKzVycCt2ADUyMB4JNSt9K3U1NAYhATQJMS8HJTAyDwMsdnM8Jgs9NXExNAd8CDUrNTUHMiYNABNrESUAJTEGBysyNSMpEhAvMTV9LSs1Ph0oNgByNjEWCCYUPiolEwAzKzEXJWscDz0jFD0qJQ99I28rcjU1Ew9ycC8tMCUcBzNwFA8rLjQeDzEUfSsyDXURPBEmcDE0ECwdERAtEA8mMTUxF3xxNQAxLREQMh0xcgEQDxcrNHY9N3EOLQd1AT0BMQ8tJTw1ADQhDwAsJTUKNykRJiktDQoRbzYuMBYrJgE2DQdvIw4WDRUKLjMX'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[4]='MSZ9JzUHBy4BNjMtCRcjNhQHcC0yCDd2EiZ0NBwKAzE2CHZzDS0jMXY8DRUrChE3HAIxKzFxBSl0EHByNBI9fTASN3EPfQN8DjU9LDYtHCYyLAYlCi0vEDY1KB0rAjdvDhByfQ00CS02PiUVDQcrKDEtKzwULAUQEhcxFQ9zfHY2KDE0DXU9Lg0+LzIUPA0VDiUBFRQ9N3UILTc3ChBvEBNxBzQ3FwEVNBIDLggoETc2FxQWCy0TKHZ9MSMUAD0sNTYsHS8uJh01D2sdDig9Nw0ldnAxChM3NRA3PHUlfDR1JisXdjYCJiswASkILSkyNgoxchMuNX0IcxMsFC43fHYCMXAPcjU3NT0FPHY+PSwKLS8sNxIrLQ4QMTwLJQsQdi0zPC88BS4NLQVv'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[5]='C3VxHQ4oPXM1cQ8odig1czUlBTIxcgFzCiUBMgsmcDwTcgAdFC0xNXZzLxAxPhN1NQBvcTF1cisUDgkQNXN2fQ0eCzY2fTVyMTAcEg0uJTx2CjE8DhB8dTIPcn01Fz1rMhBwMRMKNxcNBykrEzY9LgsODhJ2MCsQMT4xNQ19EXEUNnYrCD4tEAhzEywrBzwWMX0jNgosDTYNCgFvDSVwKw0IcnUxPT1yLy0pfRMAEy0RFz0VNSZwNRwAHB0BLSM1DwYPczJzPSMREjVzdCUcJnUSA3M1MBM2AQcpKAsgHCYcAgE1EhcpMjYQA3wULjc2AQclKDE+PRA1PXBwCiZydS8+IzwxBgdyAS4rdg8HNzQTNRFyNg9vIxQuMWs1CBM1DhcpFzUPExULNXwr'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[6]='NiU1ay81LS0PABFzCyV8Fw8+by42Dg9zMQADFSs2EzUTLS8XNQcdIzI+PXUyNAkrMQcxNy8AL3YPNnwtCiV0cSs8D3I2ECkVK3MTKAgPMTA2fTEVL3JvFQ4ocmsBPmsmLwgBEDItHhYTcQs1djwJPDcXDzJ2dRM3NTVvMQhzA3IPLi8VMCUzc3YuKxUNEjE2NhI1MBwHPRUINhNzNRYNdSsSMyl2dStxDyhwazZ1Ezc2ADd8CiARMQoXMTwxFwlyCCgjNC8oNzENCBNyDyUBcAo2Mys1LS91ATAtKwF1NTcUfSMsHAITLAgIAXALLQt1DwAlLi8KE3wTNhInDQADazFyKygyEC8QMj4+EhM+b28UKDEoMT4RcREQcGsrPnwjEhcjb3USPCZ2NXB1'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[7]='DSArcQ8HcjF2AjVzMTU3IxM9N281PQInEiAxazESLTArPnxxCAIjcDUPcSd2Pis8MBcwFgswATYNFwsQDQ8rbzI+MCccDgcxHDA3FzAWCzc1LA02MRcDczYQfBA2NnIwNQ8+JRIeCTQPBw4WMgBxJhM0BhIrEjc1ChcpfS8uDCV1Jj0jMCY3fA9zcjcNPgFzLy0pfAs2KS0LJSgmDTUxLA81IzYTcwMVNgoyJTEWC28NPgM3MQhwIwt9LTA1EDQlDTZ8KBQPKX01PTdrLzZ8KRIlAW8PFygnMSA1fBQCK2s2Pj0VHA8RdTclBXYOICMtCxcOFhMHNh0TAHAtNTZ0NQoQMzE1JhEQE3ItfRwuMTEPJhEQDQIBNzQlNWsTLTUwDwIxaxQ9b30LPjdz'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[8]='NgJwMg0XMzQwEnMlEwg+HRQIdRIvNn0nEhcLNTcQPSwrcgIlEhczdRw1L3MIACMXNT4jMRRzfHU1KHJvMCYRcw01MXUwF2sdNCYrNzEoNiY3EDEyFC0RIwgAcxZ0EgN1DwIBdhQ2PiYTNXRwCxARLQh1PTA3EDQhC3UCIQsHHTcTPTcQdggvbzYGBW8LDzYWHDU9fRwPEzI3JnQrEhBwNQkQLy0rLS0XLy4rNBM1NykyBxFvNRI1NQs+bys2dSM3NS1wdQ8+HXAUBwtvDiUBLg42KiYvMCssCzY9EA0lCBYOKBMtCHIpKwoeCXMxJhFyMSY9EA9zcDEyFwU0EhIjIxQAchUKEC8pNig1NAEIcCsPDw0pMggSEhQHPCENBygSEwAldSsPIzULc3Yx'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[9]='DSwFFTU8B30rcz4mCjY3FxQwIzQvNmsdCSZ1JXZ1LTcyNgwlNj41NwhzNzQvPA9vHCwPfAsPMxA3EnBwFCgRLA41dnIUNhF2CxdvEBEXEhIUPjcXdn0RIw8QAhYrfTQmNRBvcislLS01PSYlCiYpcwt9NzYvCHcldgcRcnYoMygBBwl8LzYDFws1PhJ0Fy4SCw81NnUXM3EUMDQhDhA2JQ0XchALPnIxCjYvNA8SEzISEhFzLzUDcA4QL292AgFwCi4BLA42LXIrCBEjFDQFMnYHAXUIc3YVMQowJg4XKBITBw9vMSUjPAsXHTw1cgsQMnJzHRMuKTINLjQdMgJwcA0wDBYPCjUtCHIpMRQKMBIUKHBrdg82JQsmNTEOFzc8ESUUJRNyL2sxNQMr'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[10]='Ky0jIwEAcBUNPQ9wMj0zKxImLS4NEgIhK3JxHTYsB28PBwwWDS0rfA91ASkNNRMuCAcCEnQXBSwLczE1CC0PFQEAMxUPEhMsCRcDK3QXcG8NNRQWDxB9Jw0APXExcwFxDiwFKw0OCxc2fSMsChdvfQg+HXMcDw8XdgdwMjclN3w2CHx2MSAxdQ0IcHELIAE1Mi0HcTclC3wLciksMCYTFQ1yMX0NKAFxLw98cxQKLBYxEB4hMTA3fAolC28xcil8Mj4TFQtyD30NLj18HC4jLXQSPXENAgNzKxArcitxCzE2LhNrDw4FczEtPXMLLgIWK3URKQ0OC302MCMsChdvcTYtcnUPLissLw8KJXYHEXJ2KDModj4vNzcXNzcNPQ8oCxc3chQ+E3wKHg11'
+for _=3,5 do end
+do _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM=69 end
+for _=3,1 do end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[11]='Dw8Ndhw1AhIKJS8oDQ8TLjcQMCERFg8XNnIBNw89ci10JgN1NgATMnY2ASgvCDUVCwctNA0tEy4ONS8QDTV1Jw0lATcLLWsmMBcTFTAXL2srEgM2CC03cTEIASkTdQNrCD0vEDIociN2ADV1dgI2FggtfG8rLAohAS0xNTI9KTQOJQMrCA8JNRRyLTQBLhMQCzUrLhMsCTYBcxFyMXN3EjY9CTU2ByksMnM3Lis+Ly4rACNrdj0jEDUWBzJ2BysoKxYHMA1zA3A1EjcyCDZwLDIldhALAgFzDiYjNA4XAh0NIC08EiZ8LDAgE3ETDzwSEiUuEgsIATQTNWslNTUFLA8HLysrNjd2EwIzPBw0DTcONTIdChczEDIIdHM1Dw8rCy1waysALzIxcgsr'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[12]='LwIBMgo2LxAvDwFwEzUPLjYwN3MUPT0QCHUrKDYINiUPDwsxEwcrdXQScRYNMDUsHDVxFjcQMykNLAcxASg0JjEQL3AyEgFwHDYcJgsQMTAUcgMyCi03MSstcHwRJQUXDz0OJjI1fHwLJhE8CC0jNxMPci12BwkpHC0LLAE+cjYcBgt9NXMjLjIgMiUBczEXKyULFwE+AXUUDw8jMgYOJTYPBS0PEj0wNXEPEDAlPCEKNAc2EwJwdQEtBzYxPXx2EwcOIQkgAXUvLm8rKxd8MistDXIxCHMddgABNgsXExANLm99MTUqJhM9BxUycnI3Ewh2NxElKzwyLR0yCAg8Jws8BXUPCjQSNCUFLDYwAh0BcjQhCw8Taw99ATI1cy8pdRBydQ0+Jh0KEiMx'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[13]='dRItNjUlA3EOLmsdDQ8tEAFyMywKMAEuC3U3IysocjUxFwc1MXI3NAtyCWt2DzcrKz0uHQg+JWsPLXB8C3ILcTZ1EWsTMBEudgB8bzUgEysrLTdyDS1wF3QmLzx0Ej0xKwoDLQgPNTENchErDTUPMQ8oNy4PFxNwDTUpdQ0mNRA1PTNxC30BfA9xBTYTCi01MiAuHXYIKiZ2CCsoCi0daw0oAS02FzQnEwgxNQ4tLBYLEjUtCyU8Eg0PDSMvLQEuNTUFKHUlEzcNF29xDhcvIw08B3IxKD4mDTAtLBwIfBUUBzFvCjUPNHUgMCcBAClxMTAxMAg2KX0IdQF1Cz0LcDASEXMrcnwyNQJyKCsINzcICG8tLzV1JTYIM28JFzwhCSYzcnYtMTYOJj19'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[14]='DSURLA4wI3wPNiwlLz41LhQPPSwPJQF1dCUOJw8KIzUNADQWHC4RFTE1EzcKEnAjCSYMFisldjI1CDVzERdxJTQmfCt1Fy1wMnIuHXZ1cDY3ICwldi09MDUuHRArLQgdD3MTKA8CM28IAgwdLwA2HQsPcHIIDzdydggBNXYPN3E1CHA1Kz09IzQlCzErFwYnERdvbwECcyY2CjEQDSUtFXUlBy4TBxMyDiUxLg1ydHUBLiUoCyASJwEIAzZ2LQ8uKz1vKw0gMW8UBgUjCy1yLhIlLCYPABEtDxBvLQsQN3YxJnI3NTV2LQ8PCWsvdQwlNi0UEjIgA30SJXx8NRIjKzZyAXYvKHBzdg8RKXZyNW80JQ9wL3MtbwsHB28xEC8sMSwNNDcXAW8TcxIW'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[15]='CDUxcDYoEiELdTwmCC0cEnYAci0UPQonMjZ1JnY2EhYLcy0uEwI1LTIGByM0ECk3ERcxdRQ8FCYTADMpCz43NjYwNW8xFg00CygREDJ1K3wNfSwlMCYRLRMoIzU1Bgl1MnM3NAE9fSd2dTNvLwdwLRMAMXI2HgYhL3IzchwHHicBBzM1HDUoJQhzNWsRF3woLz0NaxwIKWs1FykrNXUyHQ88DW8IPS80DXMBaysoMysSF3AVNCZyMQ0gE2s1ABwlEiA2JTEQMTEwIAMtDQ83KwhyMTIPJnJyEhByNg8mHCYTACYWCC18IxMoKzIUBzFrMSYCJSsAKCUxACUXKxIBNzUQKTEyNQktDyhwMRMtNysLIC1wMT0BNTQXBRc1cysodnI9I3QgMXwOEHMd'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[16]='DQ8JKzEXDCUcDz0uHDUxNjYXMTQ0FzcpNnUsEhwwNXITPQsoNT0RchImIxcxcxN9dnIzNAEPdSZ2cissKyAxNw4mE3UyByMoDS18cy82A3ENJSNzEzUJcRM8BSwcCi4ddigBfHQSPB0BNjwdMi0TcisPIysBCClrMj0FMRMuASMLPighL3U9cRQGDicTCC8uCjYxcAECETw2DzYdMnNvNXQSEzcBLSkuDw8rNAklCXIPFgkQKz0Fcg0+cSY2PQMQNi0AFjECNzwxADQnNnItaxEWB3wUAj1rCD01LjEgATUcBzE3Ni0FcQsmdi4PPjIdNyVrJi89E3I0JQV2EhdwIzU9Eh0vczE3KwYLfRQCHB10EBEoEwAcHQEucCMKNSwlDz0DN3Y9PXwNEhNv'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[17]='K3I0Jw41KCcTDzE3NS58byslCzYSHgc8KygRLStyCzUIcQ8rDwI0EjIHMxUTAjE8CzV8bxQ1NXM1MDV1dSYcJg4XfDJ2AjN2CwgBazYXfCl2fTASCyABbxMGFCYNLT02CRcjaw11DCYyF3IxMSY1cQgPDRc2ci98MQo3dRQoERU2FwlrHC03cBwuLW92BwE1Lwh1EjUwEhIPcnYsCjZ8KQF1KxUNLQ8rNigzEDAWCRV0JS03NSZ1IRMHB2sIKCNyDz4jLQ19AysBBy91FHIJLA8lC2sKF28odg9wczYuMXENCCkxdjZvIzI1My4LCDASCxBwcHQQNS4ICBwdNxADFTY2ax0xAgMyEz0DcA8lLzcPByYmDxAeJQsPfRIUPA4lMj0AHTYmIxUwFzdv'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[18]='NRBwEDFzNykRHg9rCD4zKS82LysxKC4SLwh8KAgCAiUOEHwrEiUNEBM2KzYLLAs1MX0rcXQWCS4xLnxxCyg3KBMIKyw3JnclHDZ0dityC3E1EhImD3IyJg8sBTYOLTQnAS0pLnZ1cG8LBzFzNxcTcQEHLh0vPRNyNgAvNw1yIzcUDy0rLw8BcC9zb3wNCjQhMS49PHUmLS0cAnMmK30BMg0PEXx2NnZ8Ey4BPAgHKX0IPj0XdjAtFzclM2syCHQjMXMpdQsGDXIwJj0sCwgtMhRyaxITNityDwARNxMPDW8LcQtrK3UrKCsKLXISFy4mCjY1LDcXK3MPcy0wMjZ8LTUtBhIPKDYWMi40JzE1ChYBB3BvHAJwcwsPKTwULnBzHAgCHQ9ydCwLHg0X'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[19]='DhcFNSstIy0rD3JwMRAeEg0AMWs1Lh0xdBIRKxMHcnwLDxEuL3VwLQg2A28KFglwDSY3KTYPCTcOIAM2MBIBFw9zKTc2JhExNCADMHYocn0UCHApEwYNczI+JWt1EAF1D3IpfQg1cm82cjU2NyZvcTU2I2t2czEyDhA1KzUlcDV0Fg9rDQIzFXY1Cyw2PjUoNT5zJjYuEXETPSt1Cw8AJjASHBYvAnIQFAcqHREXK2sPJTIdKwctIzE2LyMvBzAmdSYvKA0mNywrLnA0EiYTFRQGDxc2EjMsdSUtLAs+cHUwICM8MhcHfDcXHiZ1IAM8FA8KFnZ1HCU3FwFxDQ92MjY+KBYSJmslDyZ3JnQlPS0NLSl1HA8JLAs9DB0LLXAoEhB8cg11cnU1NjQn'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[20]='Kz4RKTcmcDErAnJ1Dw8jNwFzcCsOFzV8FABxJQsILCESEnA0DxcvMQ8mE3wcBw0sC3USJwgPfSUUNgEsMg8rcDE+fDUKNTctHAgsFg11cm8wJQc2FC4tFxQtDCUyAjF1KzUpchEQNhIONnJyNxcFNzIXCxcyEDYSCy08JTYtNS0PdXEdNxJzFi8PLBI2Dw00dj5vchw1BTUKEHESDiV2MTUXMTcrJXI8MhcNczUWDhIIADVrdgJwNTQmA30PFwYSCA90cistLRABNAktdnMpLQ89HCUSFgU2CxcjPA4lI3YNPSMxDzwGFjQWD28LczEtLz1wdTFyPTEKNRErCAclc3QeDXU1DgYhLwAcHRMHN28LABE2dgI0JhMoMXURJjMtMCYzcjE+HhZ2cg1z'
+do _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM=T or 81 end
+do local _=602 end
+if DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv then T=36 end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[21]='AQoDfCsHNTcBKHMmAS5yczU1DTQ0EiNxMjZ8NDYCMxcvcgtyFDUCIQ89CywIczF8dCUPMHYHaxYcLh01ATZrHXYILBIIfTYmNXJ2KwsCPBYTBwtxMS0oFhwoLXEPDg0xESUIJg11NBYyJjUxCDwJdhMtCRUJJQcodRYAJjUmMyMPKC4ddRI1Nw8lDTccKAMoCzVwcw8PN3A2Fy8oMXUxMgEuJiY2LTM1MSABKTIuLyw1ACNrCjQHNzI9fHwyc3xwCSZ0dS8uAxUIMBIWCD1xJzYHKB0SEHA0DTVydTU8BS0yPiNxDyU8IQoQAXIwJikrNi4rPA8HHSsUcitzERcHLTI1dHYrJT01Cw91FhQ2EXwUCBIhFABxJjUQPXINJSMtFAADLTUPCXN2MDVy'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[22]='NXNvLCstcC4INSgdDyUraysQMywINXY1HAoTKzEQLTwPCDUwMCZwNjIlcHYydTc2NjYwJit9KxArACkjMSgCFhwuKhYcAj1vChATK3YALXM1NAk1Dy0BLXQlKxcrdRMtEiY9fRwHEzB2LRwdDXJvFXYocR0IMDc0DiARNDUKKyg3JgEuMhcGITIgE2syIDE3dRAwEi8+fSc1CiNvAQc1Lgt1MTAINQ8yMjwNNBNyLS10EHArNTUPawsQDCV1FylzEw93JSsSEicKIC11AQ83aw1yMyg2PTFrCy4zFzIPMhIBADFyNihycTY9DSl0EjF9DRAjNwFyN2sPCis3DS4rKwECE3A2EjMpDQ8OJysocSYJEHB2DRA1NisgAhIJEj11AT4RNAkmMXArNQIS'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[23]='E3I1cgo0BXUUCAEVdi0SJzYSEysxDysuMRIjKTUXBXwydXI8Cz5xHTE9Ky0TKCMjCHEFLBQAfG8wFzV8Cz0JKTEHbxArcykVEwYHNXUQDBYPcQAlKy0BMg82cRYKNisjDhYFNQh1LXArLQMoDRceHRQ1KB12DzdzDhJwcXZzAzEPJhEyLy5wczUKAic2fStydSZ0Iys9HSg2NQN1LzUHFTcmNRcvABExMCACEhwPcHN2D3wjCSUNNggIcSZ2PT1rCzZwdgEHL3U1czFyMRIzLQE2ES0TB3B8dgAdNgE0CRA2EhMuCwYLKHYoEzw2AC8XDRBvFTUAaxIydTEVCDU3FTceCyt2ADdzNghvdQ8lFBY2JSglNiARbzUIAS4xMAMuNyArNDVzKTZ0JhF1'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[24]='ERA8IXQeAB0PPgNzDQApLQgCAXAyLQ12NRcrMg9zdRINMAN8MiADcg81KTcPDg0uMQ8SJ3YOABYyLQl1DwgRKQklAB0TcQUxEw8RFxwuPTILNXIrNg9wcQkgK3UNLTIlKzUNK3QmDBIUKDcrCiYxazVyLykrPA4lMhI9a3Y9HS52fQMrFAArcBwsCSkOLQUXEzVvcgE0CywPFzUrNigtcTEIEzE1PR0yNigTcgsOFCULPXAsNRcwJTUPACYILhE0di4zcg0IfSUcNnx2E30RcisCMXEBD3EnERI3dnQSLSg3Fwt8MT0SJgE9ETY1dTYSKywKHTEPNy4cNQcuCwgSJxQtJh00EjNvMS0rKAstcjQIPiVzE3I+JTI2AiEvNAYmDXJ8LA8+ETccLi0w'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[25]='FAgvKAslchUONTISMi58PCs2KhINDytvCwBvLg42ATcNDzwWC302JjESNSwKLgE0Ky4BdjJydBcxdS4WC3MsJzIwNhJ1Fy9vMiwKISsKAzcILi88CAIrLQ4tbxUJJQ0tMTU9MgsmfBV2KDIWD3ENazIlN2sNBgoWEy0RdhwoMygcMBE8Mhc9LA8QMiZ2MAMwCRcrNA8AAXUKMC03MhA1dTVyCCUUCgISERByfAkQEXERJQ0tMiZ9FgE2dCs1NXYuFAA9K3QmKzYRECVvFHIjEAE9KTExBwsxCiYMEggtPB0RFwsyMjV9JQ1yN3ATLQYnDXENFwklNSs2ciglMj01LDUoKxUIABN1Di0BMg19LXI1LSsyMXMxFyslM3AcCAEjDwo3MSssFCUrEG88'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[26]='DyV8Lg0CA28UACMpK303dg8wAWsONRMjdjwPFQgCLTExfQNyCxICIRMGFBYLLiYWMQA3cwsHNiUrCjc3MghvNCt9MTIIPiwWHAI+JQslDh01NiMpDXIpcXZyNS4JFyU3NBAxNDcXPSs1PmsdNS4jNwg9NWs2JQsoMig9KzFyMXwrDykuNx4PKDcXDiUILiM8NQYJNDUlPSgcLAUQKyhwKTY9bzQ2Ei4mEiYRcjEtJTcNLm81Cy0xNTYSE303JRNrDhc3FTUPb3IxfS4SEhIsEhQ0CiV0IAE3NTZ9HSt9AzwRHgYnMj5yaytzEywwEi1yEhAzbzYAJTINNj02HDQJay8PLBIILAVyDw92MA0+cHMvKBMsNT4TfBMuEzc2CHUnNX0jNQomdn0TPA8r'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[27]='DhAlLXY0B3E2Ji80FD0KIQ1zdRYSFw0QMQ9vczYuAzV2BwVvMjUjIzYHK28xDgAWCH0DLRwAcms1LjVxKwh3Eg0lMXN2MBMuDQoSHTcQHhILJSN2NjYtMhRzMCUPDgkuMBcrFTUucHYNdQISNnUsJg8ILXErLAVrDjZyKw8mLTQTPiMoCy41cBM1DTQxAnBrCy4xcjYlCiUIDgl2dgcTcxMPPTYJFwoSEz0PKwEtJiUPKDFvEwgpMAklCTYTACN1AQIDLQoXCCUOLAohDzYTfCslEhINAgMrFAI8IXUQMzcLEAF2DhdyECs2M2s1dRFrCiUsITUPBXE1Eis3NnIHfDYHMXURFgU2Ey58b3UmLh0ydQE0ATABFS8PBh0LAHIrCRB9JjYmETIKIBIn'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[28]='DiU1NjQQKTwrJnAVEzYTazIHcSE3JTcrFH0rcys+K283JjUwDh4FEA4lcnw2c291CAApKxEXASMRJnY8L3UjEAkmMRcyc3A0di0CJXY+KRAcAjEjNT4mHTImPS01KBMyKwABbzUAI3YrLRFwCy4vaws2LWsBBzFwKwA1MhQAMXEPLQs3DQIsIQtzcR0yLjYdEwB8FzJ9EzcyIDcjCAcFdggPdDQyPjd2DiATbw4oNhZ1Fwl8AT0pdQEHASwLEhE8K30tfDUXCSwyLi91Kz0xMgE1KXAKMCsXCC0jdg4QLykKEG9yKzQNbw8IKy41NW8XdnMtFQgAJTUBfRFwNgc3cTEGBTcxLAlyHDQHNQE+cHZ0FwtzFA8Dcg9yfRIwJTdvdSUjMnYHBTEPcitz'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[29]='MjUuEgE9DyMrNi98KyAjcDE+fRIrFxM0HAgxLnQeByMUPTcyMj5wbwstNTULFwkpNQgpazYSPh0PNi8jFAhvNQolMTw3EitwFDYTFTY9LXIvBy8oMXMrLRMHLS4rJnQpEhcFLjAmdDF2LnJrdj0mHRM1Lxd2LTEtNi4rNg9zcmsNFwV2MQgjFS8IMzErEnA0Nj4oEgsHEzc1fSs8AQArMQgIfHwBc3ZzNjYBMRwPEXUvLQE2dBIjLjEHCzUJFys0LworLjFyE3AyNnIQD3MBKxM8CTUNNAUuMSUjcC8HLTUrJi8tDhclPDE1MXEPNjdvNiYvKxElBXM1cy98ESA1NzEIKX0yEjc1Dz0lcRMwLTUKFx4hDzA0IQ82dCkKLSsrCw4OHQkScDErPS8r'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[30]='Mg81EBRyDzwvCG8XDz1wFys2cn0xPiUjMghrJjIXfBcwFwEpNBdyfXYPPSMLNQc8Nig3KDcQM3ASFyspMRcrazVzPhYOLAktDSAtEA0GBTYBNXB8DS1vcDICPh12ABFzdBA1MDJ9LSw2KDYmCRcxcnUgKy4xMDIldCYrIyslPTYLDzU3DwhzJS9yBiYPchMoMT4mFjIldjENcxF8FHIREDEwNy4IBgsjE3ISFhM8D3EBPTMyAQAdPBQ+NXATLWsWC30tfQ0wKy03F29rKz0mEg0PMhYrMDcoNyUHfRQtCzYKNhN9dgADFRQoExc1NAdzNRYLLnYPBSwyfQE3MhcdMg0QPBIxEDMtDiY3IxwPLXITDgASNi09KDQSNXU1PjVzFAcsEgsmAiYwEhMx'
+pcall(function()end)
+if oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa~=T then else end
+for _=2,3 do end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[31]='NQI9LgouE3x2KCstdgcDbxMHcnUBLTIdFCgTczU1IzIKNA8uFCgTLit9ATY1PAVrDiUvcgo1M3AxB3B8MQoBLTUwLTc2KDN2DwcJczUSAhYLPi01Kygxcis0FBYIcnUlAS0LFTQlETQ2PnEdDjVychQ9N2sUPQkrCHUBdi8KEzI2cQU2KzwLfTICEzI2AjFrNCYzLQ0QMxcPD283AQoDF3QmAzIOLA91Kz5vczIANTAKEDAdKyhwKQsgNTIvBzMoMhczLjE+HWs2HgYhMT4DLC8wDCYNdRM3Nj4lNDAmdScTDgYWCHNwazItCzQ1EiwnDSU1EAEHKh0LHgswMTQNFQ4SERcPPj1vMi4TNDEIASgvfQF1NjYxMTEHCTc2EisVdggpLCsPMzw1NQ9y'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[32]='Kwc+Jg41BzQBNgIhEzVvcjI1By4PFgoddgIrcSsmPXEUCDM2CH03FzFyCBYTDwImLwgxLhMHB282ByNxMTYjcAsPCygvczE1dRctawt1NX0PLREVLwIsJhMufDIrEC0xNXIJLQ1xDzd0EDAlLwI3PDECcSEUDwMXCjQIHTUmdScIACN1NhAvNggPdxINDz11DwABdjE9cSEILRFxdi0FNC8PdyY2BgV1LwcOEjY1LTUvMCtydj0SIRwHbywLJjwWMnUxfDJzcHMxLTIlDQh8MXYoEzQUD3cSCD1vfQs2cSYLcgl2DhYOJQ0OD3J2AjIWNgAlNBwtATwvPjQddi40HTAQLB0Pc3IVdCADFTEHCTYTAC9xCwgxFQ1zLTcNAjdyCwYIHTUXASwyCG9r'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[33]='CD0PNAsAfDIBPgNvEzUjcxw2fBcTAiMoMSZxJ3ZxDWsPLjVwNBAuHQEPNh0yFwMQdCASIS9zNh0INjM1Ni0rdQklCXArFgUQDjUFLQ0GD2sNIDUXFC5vMnY+JRcBNQkpMgBwKzAQPhYBNSMxCi0Lci8+LTQrDgoWDxIDMTYtN3wPPnA2CiU9czU+LW91EgNwEz0tPA8tMSwLBy0VNnN8dTY1MXIIAiMXLwJyFRRzfHwPLStrdj43djZ1NTENc3B8AS0ddQ0lKS0cNhMuCxBvaw4oASkrHgt8MjYyHSslCXIUcyt1CHIFLQkXHB01DwEoCC0Jaw8oNh0PCCwSMiwFdjFzASsyBz0XNxcxfA8ODzJ1HgcoNBA1ay9yMTErPXMdDiABN3Y+cDYyAAwm'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[34]='KywLLCsSDCUvCAEjDxd9JismPhZ0IAwmCyZvKzJ1LTQJJT0oDy4tcxNxBTwPBzVvNigrPA4XCSkJEjcjKz4SIQg9AXYxcysrMhclMAFxCTx2MBFxMj4pPBw1dCMUcm9vChcFNTUHKzZ0EnAuCyVvbwgANXMTPjMVE3UBchMCI3INBgtyEy0lNTcQASMvc30lMnI8IQ4uJiUrABM3MhJwLSsSEy0vNQUxMRczcisPPTELBgVxMCULfBwPC3AICC08NQAtFS8+NzYNCHUmKy0rc3USATw1NQtvCRdwNxMtMxcBci91dgIRNgo0FCYLEhMjDQoTcA1zNTEUPnJzDwc1IzUuPTwPAhF8NTYvNXYHKCc2NnI2Ez0oEjYSPW8PADU8CwA0EjQXbzcUAB4n'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[35]='DiZ0cgEAcCgLNXBwNhJxIS8PDS4NNT0XDi58Fw8PBTQTB3I0dgB9JTEmcCsyCCkVESZwKxwtMCErHgonNTY1IxEXIy4xNSt2MTUjFQ0+HXwPPSMtFAhwNQ8KKyMOFgUoEy18c3Z9A3ArACVwFAA0JhElbyx2dXJxEy0qJjYHDTwKECMpAQ8DcXYtMxcrLAl8LwADN3Z1LRB0FwASCA8cFgg+LXEUDgUxMhARLTECcRY2MCMpFDQLLQsldHEPLRNzEhBwcXY2E3IrAjUjNgATK3Y1KiV1JREyE3M3NAg2axIIPQksFD4lcgsHESt2B3IVDQIDMTIIAxc3JhIddnEHLS8wAiF2Dw4WMj4DIxIlE3EcDg8odnUDLQ0lCTEKJTcsNX00EnUSMRAKMCtz'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[36]='MXI3NQhycHIKNnAtKy19Jg9xBzIIPn0WCSU9cisXHRANNXQuMi4CJg4Scn01JnYtAQAtNzEmchU0F3xxMQIRNhQtAyMxDylzMhc9cC8HDicOJSM0D3J2cg4mLTF2cjImMXMrFTcgDB0cLAk2dj4SJTAXDRAvNnEdKxcvcjAXKiYLNjM3MQ9vfTIXfRITPS1rAQBrJQ8lNXUNAnAxdSV8MnYtBSsBCi4dAX0tcAg0CTINLjEuKzVvLA8lCTcrcQ00Kz4jLTFyEXYxNnwxMiUjIwECAzUBcyl9AS0HEAgILTENNAcyNnUtcTJyMzUvPgN1FAhwNjQWBy0LKCt2DzwGEgEtK3ISJQUQNgIwIQ8+bzQrCHA8KwAvNXZyfG8REB4mLz0+EhwPNCcPBg4S'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[37]='DQAtfAotNTwPLjEtLwYJaxMuKX12NRIlDhYLcgklDy4rLQkyDhIrKTE9cxYKMDUXESZ2cRwCN3UPJQ8QdnJyLhwHFBI1JilwAQdzJjUAPCYLCBEjFC0JcQ41cjYPBgUVLzQOEg81BxU1NQ02MSA3MSsPCzc2LiV1NQcRaw0XARArJXIoFC4DFTEQE3w1DwE1DxADdTAXCSl2NSt2C3ItNTQQLXASJS01CxdwFQ8tDy4BNSwSDS4vEDYGD3MNLT1wNyUtdQ4mMX0Ucy03MQ8FcTUHLh0OECtzNQ8sHTYIKTd0FyMtNXIja3UgEiYNFwcyMjZ1IQgCAXAOJi19LzUPMRQ1HBIOMDdzDxARPBQ2LX0PEC08dnVwMQ0AfR12PTEyDR4Jb3QeCyMKJnMl'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[38]='NXN2NSssCS4xLRM2CC0yFjQSK3wKEC4SNTUHNgslcjYTBwE1EhI+FhwINykTczAdLz58fHYCNRd2AjAnEhI3Ng8tNh0TPSwmNi4eJys8CXZ1JTQSHA8rcwgtB28PLSksdnVwdXZzEzIBLSlwdgcvdTYPBzERFwF2NSAxLisPdHwJJSlwFD4TMDEQHTcPJStyCxIRcg4QMhIvADV8FDY3dREXBXUyAgNyCHMzPDU2cDE2PXBxNS4vcjY2NBINByN2FDA3MgtyLRd2c2sWdCUUFhNzbygOFgtvAS0xMQ82AXJ0Fz0QDX0jFQ0+bzE1CjUxDxIrdjUmKxV2cgglCDZwdg0ub3A1PQYSFHIzFRwHA28LF3wsERYNcjE2cxJ2PQsyCywHLAsCLhYRJQkQ'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[39]='CiUsFismI3B2CjV9FChyKzYXIzEcByUtdCAuHTUtMTALJTMVNgoMJhRzfDY1PXA1AQJwFxIQHCYUNTNvdRI3axQ2MywxchQmHCguJgE0Dyt2PQdyNh4HMQkmLzIPchF2MXEFcXYHciMPdQIhNTQFfBEWDXJ0Jis3MSY3KDEPfCg1NQgSdj0BFQ8CIyN0Ej0xDhc1PDZzEXYxCiM1AXIRNQgPBzcrADQnMj0NKXZyCTE2Pik3MS4RKHY9DSgOLQlrNhARcTQWBiUcDzVwdnM1bwstNXUUBgtxdjUSIS9yBRcyEC8yDi4rKzUPN28BMBMtNSULcQ0gAicNNncdHC0DMTECcyUvfREXL3IOIRRyERArEjASEw8zLDIHKxd0Fy98Mj0rbxM2dBAxNS9x'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[40]='AT03bw8SMyw2cgl8Ngo3fCsKAXMLLQEoCDUcJgsuPSgTPTEtDz0TLBwKMS42NgMVEiUjNQoWD3ELFw8sHDYRcg8wAiYxDgUQMiV0bxEmdx12NiMoLz4TMDEtM3AILnwuCDZrJnQXN28LdTMyDi4wHTAmK3AxfTF8MS4jNgtydiN1ECgSDw4PFw8lKXIUPjc3MXM9azJzEyx1F3JwEw9waw8lB3wNPi11C3Itci8+Jh0PEgF8Eh4PEAkSPRcNABMuFHJ9ITUXDzEILnwoHAYHbw8CMywyPjU8KxdyfDUIdigKFywSCiZ2fAs+fR0yACMtDT49KA8oESgPLA01CxIDMRQANXA0FwdzEzUrNBRyPS0LJQ8QNnICFhw2KXAUCHxrNigCEg89E3A2Bgl2'
+pcall(function()end)
+do DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=39 end
+do QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa or 41 end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[41]='Mh4PMAolayYSEDF1AXMTMi89A3wrcnMWDiUrcBwAHXMLLQd8MTYwHS8sDTwTAjEoMSU1KzYPMB0KNXwyDTUqFnYwNB0yADFwCyZ8LTVzK3UcLik3NTUxFQsHMCY1cgd8NXU9Kw0lEyMcByU8CyV8KBIldyUNEjFwATY9FTUmM3MIMANvMh4JczIlMS0vCDF8DX0rKwsXHh01CBF1CDYTMA1zKXx2cjd2L3IxFQ00DiE2JQcwDQg3NAombzQPB3EWDyU1LTY2IzcrLnw1MXIJKysPN3AvNgM8CAoTaw01FBIyJj19NjA2JQ0ANyMRJm8XNTwJcjESES0IPTd2Dw8sFhISKyMULhM8DzUPFQtzDB0vPA8uCxBvNzYIcmsJEisjESV2cDIoIygyPQ83'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[42]='DzYxfA0QI3E1FzU1Dxcjcgo2fHwPfRImMi19HRQHCSMcLi8QMj03EAoub3UBNRNzKwh2NTASI3UJEjF8dgAlfCtzI2sBPTwhFC0JMTAlLy43EnESHAdyMQ0SK282LRExCw4PczItJTwNKHMWDXIHcwoXMTcND3Z9CwIDKw80C3MLCjIdEwclKwsIdDUPABMjNgclEHYAE2sLPQlxCigrNwkmEh02Dw98Cy4rLg9yL2sSEDAWEiU3LggOCSgxJnIoAQIrcw0QEXYyPjISCx4NLg89MWs1Li9wCy1rJg9zLiYPAH0mCHEFKTYSETQIAjExMTYjMnYIdG92PRMxERd9ITEmMzUyNAglCC0LMSs0DxcxJRE2LwgtLQ8sBy0LcgE0Ngc3azUAERAyIAF1'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[43]='KwApI3YPfHwNcjwWNT0PfSsoMh0JECoSKwAzKzElDy12LhE0ATUxchMoLRAxF3AsNBAzMRMwEicTKC02DSAxcwsAbxU2FxMrdRYGFjEPEzYKEC80MhI1MSstBXUrcnxwCDA1LBwIE3MLFzASdjURLgsAcnIrJhNvMgJzJQsAfBASEhEQDhIcJis+PTx2AhMQFAg9cxMuHRUrMBE3Lz4tbzISNh0PNSk1NQczcAstAWsrPnIxC3ICISsmbzEBAG88FAIBFQ0PfCl2DzNwCHMMHQE2fDIPPnBzKywHIwogA28rPnwrCi0xLTUwNW8TAAFzMQ93JS89KysNDzMoFAclPBQ+bzUcADNyMnJ0KQEoEzc1fREoMCZwLRwubywKKBFvNiY3LgoXLWsLFwIW'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[44]='dgIrdg0GChIUcj4SdnIsJw8GDRc1PQInNBIyJTISLRUNPXAsDRdvfDE9BXZ2BxwSCwgpKBw1DS0Ucz0oCiURfDY9E3ELLAomMS5yLBMPPRARJXUWAQBrFhMCPiU1Ej0uD3MzNjQgNWs1JhMyDQYHLQEAPRAcCgMsMiY8JQoXcDcPLSMuMRAvFxw0CXYLJRIhMRAtcxMtcHUwFyYWNCYpcis2L3Evc3x1EzAcJjY9b3U1NSNzL3MjNA1yA3wcD3ZzNxYLdTEeBXY2Fz1yNCZyfA1yKy42PiNzDz1vcTE2MTF2dQMrCD0lFzUlIzYTBzExDQgTKCsANS0xB3xxDjUPKws+LzUrJXI8ERA9cDAeBTY1FyU1K3IwJQE0CXI1CCMyCSA1LQ4SAicKLSt8'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[45]='HC00HQ8Ib2sUKCtzFAItNDcXNhYLMDU0MBIBKws+bzYLCisrERclNg4uEzcOEjQnNxBrJTU0BTETCBwWFCwGEnUQI3IPcjAlDT4RNBMuAzwNAnAVNiYTIwgoETQxJQ11Di4DFQE1NCYvPgNvMSg3KTJ9LBIrPSk3FAhvMC8PLxUOJXA0Ky1rEgolPS4NczcXEzV8djIHLzY1LhFwCwdvIxQocHB1JhN1HC0lEDYXKCV2PjFyDhARci89fC0yLi9yNjQHNTEHBy01JitrCyYoJSsQLhYNJRwmDjUPNw4gNS0rBxMwCAcpLjYHKXUNBzFrdgcvcS89JS4LPAV1Mgh0EDEAfDYxcgolMQczbxQHHXI2LQMVNyY8Jw4SMTEyKCtxMQIMJgstNzwrPR18'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[46]='DwApdXYKN3wNEHx2AXICJTUPLRU1ABMsEwI1MDUAATEPDwIhMSU0JQ8lKXE1JXRrCzwNPBESATQIKDU0dgAldQ0gE2t1JQM0MXIJNDYwK3MPfTEVChAdFTEuMXU1LhExDw8cEg4lCTYUNi00DTABcTY9IzY3JiMVKxBzHQ8+AxcxBw0oEhA0HQo0Bic2BzUuMQcjFTYmNyh2DwE2NBcTKDVzfHEvcQt8AS41NjJyPhIwJit8Cy4xKwgoASwcBy8oNSV1JjcldCwUPQk8dBAxKw01NRcycwFwEzZwKTcXI3wTDwkoNTAxPC8+PX0vBzEVNg98cTYgNygvKDwhEz4RFQFzIykUNRMXNnMjPHYoPXwvCHZxDz0tMg09BzUxJTUudj0xNStzLxUNFzEs'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[47]='Mj0jKxwuHXINPSkwKz58LAsHA30UPRE3CzUjFwEtCSgULAdxCiYsJhESEywPNTAWNT5wNxElCXAUcwwWESUuJQFyDxc2B28sESYDFTEKE3ITcnZ9MXMTcTQXDS4xPSMsHA9vMjAgNhY2ACVvCD4tIysgESsNcnYoLz0rcTUtCzIUPAYdDhcvNxQHDSgKNAU3NiARcxwPK3IILQASMgABNwhyDXYUNSMpMgYIEjcXETcrAis3dSY3fBwsDid2AnEndggBKTEPMCV1JnR8ChdvMSs9cCMILWslNBAmEg0XHiEREhEtATYvKQF1M3Z2DgcyDTUjFzItby0rci08FC0RMgouIzx0ECktEy4jfDUwAWs3HgtvC3IPMQoXE30TNQE8NjArNDUoNSsJFws1'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[48]='DQAyJQ42fHI1EG88Dz4DcwtyKyMwEDUyKz58EBMoNhIrCClrNSArPAsPdHENIC01CjUxfDIPKTc1NXYsNT0dfDUIcyUONgE0FAA3KREWBTQKNS18di0KIQ4tBRU1Ci0VNi0RLAEIcHAKLhMoKz4pIw4XAW91JQMVDT4mJnQSMCENMBwlMQcrNStzE3MUKBM0DXMpcQg+PRAxD3QQK3UuFg0CKxAJFzFwDT4rKytxCy4KFwIdFHM9MQs1AXV1F3MlE3JzEjE9CTENJQ9zCHJ8Li8AL28NNjYSCDASEgs1PTETD28xKzA1IxElCywrJTMXESA1FQg+NykBACkXDS0jNTUPChISEH0dEz4pIzYAM3MyNAstCD5vPA4SKxcUcnwpL3EOJzASK3wTdT02'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[49]='EiVzJRQ+LRAPDytwDzUvcjZ9IxUxEhMQNSV8Ng8uLCYxcgF8CDwJcws1L3EUBgUjMRcrMQsPD30cLissMT43NzIAHTQTfTVzL3MCEg8PcDYPFxQWMX0BcnYKLTIcNn0hCCwGEi8CKyk2BwU0HDULLjZ1cnAxciMoNXELLS8IExAyczMxMjULEC8oLXITCi1rKy4lazEoMhYwIBIWERI3fA8lNzIPHg0pDT0HcgsAMXAvDg00EiYvfDEgLCY1Bx02MRATFSt1PBIIPS8yMhdvPAkmHBILKAMrCC4zKw1zKS4BKDcpMigBK3QXERAUD3AxHC4jfDI1fDYxDxQmHAdrEi8+fDwxNQk1Lz4rKBEgERcLLT0rDwcqHRQCASs3EjwnFA9yLRNxBXANLm83'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[50]='MBd8cHQSPh0yBzwlDSgjfCs+Ey0BDyghFA8LNDQXNiUUPQ0pAXEFdRQwMXUOIDc1NgYJdjYoPTYNADwhD3UDczU9cn0yICM2L3ITazUlMzI1JQ02AX0CEjI9LTZ1Ji0tdCADLC8tMTUBdSt8L3MyJgs+fC0xJQoWCiZ1HXYAJXN0FgdwLz4TNwFzNW8yFwwSFA4JLSswAiU0EHIwDXN2LQotBXwLCDM3dgAlfAFzMzIKNnwtNXIvfAsCPRUIBzQnDTVvPA4mNxAPNAkuMQ8yJQolKzd0EjM3dBJwKXUXLS4yPT0VDS49EA8CLW8PLTFxDTU+JXZyL3A0HgcxMi5xIXZyb3MrAgNvdBIRdjQmKTUyKAIWLz0pfAFycBATNRM0DSYpdQ0lNS4rBgsx'
+do T=_lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM or 2 end
+do oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=_lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM or 926 end
+for _=3,5 do end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[51]='CH0CJzYXDXUJIDc8KywPfDQgEzExLS0sAT59Eg41M3UcLA8wDz5wKQsCE3IIPSwdNQARN3Y9Ly4UPXA0NTUHMA0SI3MIdQN8Dz1wdTIAHh12PXI2Mgh8NzEtL3J2NT1wMhA3FQ8mHBIrc3I2CxAtIwomKzwPPj4SDSASJzUXCWsrPQcwMgYOHRIlATQwFgt9DhYOJgtzA2sSJjN2AQ81LS81Mzc2AHAQCAgCHQ41N3ELEB12KzYrFXYtfC52LiwWDxABKw4gA30xJiMjAT49KC88CWs3JS1rC3N1JgguKX0rNTd2Ni4tcQ01cCt1JjEyCSYjLQ1yIxcvcm99CHUxNhQ+NiULcQ99DiUvKwg2MXMPCAMtNhAjNDAXCTQLJQ8oAS5yIxQ9Ny4rLAku'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[52]='ERADPHY1Ay01D3R1HAcGIQsCMCEyFwl8CiZwLQkmAXYLfRwWKwA9PHYIdi0TNTM0ChIjaw81PRcLCjAWCAA+JQ4SI3wSEitrKzAxMgswNW8TNBQWDjQHKzE+LhILDwtvMTV8Iwo1LBYxLQIWCwdwLQEtLW82LikXdSUNbzFzKTESFw1xdgAvIzIgMiUULTE8Dy0LawsANTEBcwMtEz4dKTIAETcSJSl1HAojLHUmLxATChImEy4pLTY8C3ENcyssEzADchQ2NB00JTQlDwgjPBQIATwLIDcjEwoRN3Y8BzYBNTcXERcSJw0Iax0KFzM2NXN8dg41ax0IMAE8FAoRfA0QcigUDzASNQd8cBwGDXI2CHEdNyU1bwsODSsNKHI0NhcOHQ8XCTQ1KDcs'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[53]='MQA1Lg4lDysBc30nCzUJcHQXLykrLnwrDxA9cjQgIxULJik2HAhyPAgAI3IKLjMxNCUFMjIXLhIrBzNrMnIDfHYHCzYcMBIWMgorNzIQcnEyMAEuNXMTLC8PDCUrPiksChAjKDZ1IzYcByV9AQ8OJzYwE3MINnYjDiAjcnUXDBZ2BgktK3Ujaw8eBy4xCit2HC4lNDcXDXYPB28wE3N8Mit1I3wxJT4mATQNIzUAcCsxDwlzDi0KJw0ucR0PAisxDxc1EA4QExATdTMXEzYRKw4QMTUUNAglCw4OHXUlHBJ0HgkpMigRaxElCxAUChFwMRcRNTEXcDETBwwWEzUzNjYXHCYLdTAnDRAvLQ0AK28OLSYdLwgyJhMHPCYNBwISCSYwFggPAzc0Fg1r'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[54]='CwI2JQsHb28TD3woDi4pLDQgIykLCjc1MS5vNQ8+AzwvfRNrNjAxbwgHETwcMCsjMSV8b3YtLXwPDykrMSgzKzVyAy0vLTM8NBArFQ8wNTwBKDd1CHMBcAs+JSMvLAYnMQ9yfA02ESwBDwkQLyhwFQtzLTcydTU2NS4vLCtzATd0IAF2KyUKFi8ucisyJjQlLy08EgooM3wUPQYWMT1xFgECMXwLLS8pEw8GJxMPIxATPi91ATwJbzQXbzI0JiksNiVwNAEtJSh2LTcxNSYBdQhzcC0KEDQlDwIRNRQ+EzYrB3BrFC0rNBRzATURICMoNnMtIzIAcBUyNQFyMghvLQ0XLX0vDzISCRAsHRNyNS4PcikuNT4DfTZ1PS4yCjdzNS0TLDcXJXE2Dz0s'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[55]='CC4xFTIGDXM3EjUoMTQGJQsuHS42PSkxCwosJxM+JRAPPXwtdCUzawhyNSsILAc2DyUUFis+KCYOFwoSHAAjcBIXPTwIDwwWNj4lEAouLiYvPTUQERcHcC8HIy4JJQ1wDRYNNQooLW8rNjFwLygtazISA3UKF3ApDXIzLDEgKzcrJjF9NRIDNRMCDCUUNX0ddgc3cTIHPh0PLiNrdgoRfA8QNB12fSMsKz0jNzcXEXINBgAmDwcpfQFyBTYONQ01L3EOJQ8XCywKHgV8CwcRdjQQHXU2By00ATQNNAE+MTYyLTMuMj48JzEoNiYJHgcVHDQGJwsCMXw2PQt8EzQFFzUGDiEKNXxzNg8NPA81fBcLLRMyDhBwLnQmKxcOLAV1digjNisHHTQydQIS'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[56]='EhA9EDIAcnI2B3ApEy0tMg1zA3EyFystNBI8FhQ2djANEDUXCCgjcQt9Ey0yPA18D3UBPDElN2swJTwSdSVyI3QWCSgUMDE0Dw8xFRwtPTIcBzUQCwApfTEuAyMxNil8Ky0pKA0HE3MTAANvdgcJKRQ0BXEULgwlMgITNjI9CXALAiMoCC4ddis2cRY1AB0XMjVwcTYCNzwBMDVyCxctcTUPEyMIAis1NgceFggAA2sKMCtzdgA1PCsPb3wPLjYlNyAcJhQwLXMBLhEuNi1xEhMoAyMUKDcsFCg3NSsgNCYPAAFzNhcmJQ9yKxALJnEmMSZycA40CzILBwEQMS4RKDUPKXABDxE3MCYBKQogEXYIPTN2DXIoJQ80DS4xcjdxCA92LCs1LCcPfSsr'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[57]='NCYpEBwIIy0LCCoSCwcxNTEGDxUTACl8KwcNIzJyATYxJT1wDTQHcg1zKysxNSMjLy0mEgsQMh0LJjQlMBYNNxEgAXUrciM3EzwGJ3Y+JSsBNAtzKxdvcjEmM3UBKAMtDQc3dgECM3ExLnByNgd8MjI1CCU1BzwSMQotLQ8XDTR2BwMsNxJzEgoXfBcILS4mNi42JXUlM3wvNgE0NQh8cDEoNzV0FyV8EhcPN3UXbyw1Bwd8MnUjKTYAIzINIDE3CxcFcQgHCXM2NnUdCAAzMTImAzAvDygnNhclcxMPMy52DwEjDzV8dTFyPS0UNT11MnUzNg1xCSsULn0SDiYBFzQQcyYPcnZzKz4jLTAlNX02Hg82DXUBdjU9KxUNDys2dBdwNgEtNCV2fTU2'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[58]='MhA9cAs2A3M3JQcXCRcRbwEsACYSEB0XNQ4FNQE9JiUxCHw1NiZwFxw2KTwxLSksMBAjcw0Qbzc1dTE0NjUFNQtyA3MONgMxDz4BMgkQMzwLBgtrCCgzMTJ9MCYKIDEyCzQLKysPI3MxNjNvAQIRKA42E2sNfTU8AQg3cy8PdCg2PjMVdCU3LAkXDSMNNTVrMBdwMRwtAXIIBzdyCwoBNQ4XESkPci03djUtdQgHMy4cBy0rNjAjNxwocR0ILA0uCiArcwsScyUxdRM2DzUTEDIQcjAvczVzMXUtNHQmbxAULTNvD3I1KwsQMSwUPQUVNXM3FSsoMCYILAUjCjUjKAkgLWsNNj4SKwouJhEmMzUREHwuHDUNNw82LTQyLTcxMQAtMSs1AhYNfQM8'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[59]='AQ99HTYtC281JXI8Ng8rKQgCLTcTPQIdEzAjNHQeDzUJIDUQHAJyfDIuKCU1KAFwFDYuFgEINzcNECs1MBYOJnYAAyMyLik1DT0pLDZ1A2sTBx0xEwYHcws9MzYUczUtdgouFg8uPTY3JgE3NSgSJw0QMiUKNW9xdj5vIwouM3ELPi18Cy0ddTQSLBYTcQcsDi0TLRQ2MRALLA9yEwcyJhM9fHAcChInMhAldXUQcCsrHgcodj43MjIuJXUOJnwQNQ8JFTceCXwrKBNyMTU3cgoQKBIyNQkpdi4RIw42dR0TAjcxCHI1NwkSIzQBKDYWDhcDcDYgAXY2NTVyDXUwJg0XMXV0ECwddB4OFjcQNSMcCi03Cz0cJTESAxAONXQ3CDYvLRQ2EWsIBgk0'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[60]='EiVvfDECPSMRJQ81MSwLfQ0sB3M2KDVyDQclPAkSKy11JQc0LzQFLQs+NCULNignDiUAHXY8CSsrNncdHDADcXYtAh02CjcrDRcNaysXKy02NhIWMSZ0czY9DSw1LT08Nhc3NjIPcjJ2LAUXLzA3LnUScG80FzcVMjYwEjI2Lys1EComE3M3MjZzNxAJEjFrCSUpMA02MygPdXAoDy5wMQslE28OLnx1NTYzLTImN3McKDdyAXIDIzE8Cy43JhFxE3UzbzEsDzEvBzF1NQAzFQE2cHwBDg8jNSAtcwEALiU3EhN1HAI2HTYPdDY2c3IrFDUNLA0lDSgTABEXCwcPMhwHLTIrCComdi4dNjIlLCUPFyVxNyYDFQsgKzIKJnwXdBIBIzYPCXUPJnQu'
+pcall(function()end)
+do oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=T or 357 end
+do local _=893 end
+if QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO~=_lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM then else end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[61]='MQYPFQsIMzwBcy0rNQAdNAE2chAOJnQQCyUtNAsQPCYNdSsrAS49Lgg+NzwcAnIoNBA0JQE9fCM1czFzHAAxMghycDURJnwtEy49cQs+fHILCgNwNiV2NwomKTwUcgcVCAcRbwECM3MxDws8di4lcBMocnMKJnQsDwAeJTEPKzJ2Ph0uNx4HNDIXCxUxCC1zFCgjMRMODXIIc30nERISFjZzayYyDzIlDjAxfA0ODS0IDywlMTYDKwhzfCMLLR11NgByfXZyMXExLXI8HAISFhM2DCUrBwYSMSUPMDUlKzYrEHIXNnU3NjUlE3ANJS4SMS19JjUgMXwycykxCDUNNTUSMzcrciwWMQ9vfHY1C3MSICM2CSURdi8PCy4LLh4WCwApEDQXIzU3JnY3'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[62]='FC4eJxMHLTIKEHw2LwI9FysHJSgvACU1djY9LgFzMiYxEiN8AQczdjEuKXUOJSsQMg8xMHUQKiYPDyN2NjVwcjQXDzAvNTwSKwAcFhIlLSwILS81dRIRNBw1NiU3Fw8jLzZvMQ4XEygTDw02CHMBNQs+E3EyEHIoNS43LHQXBXAPNTUoAXIjbxw1BXUyAC8uL3J2fHYucGsULR4hK3N2FTAgNxV2cwMsEwoRLjEScjcvCDUxHAArcCtzdDR2Lh18DXI9MREScDYUBytwDyYpcjUPBSwcBw08FA4KFjQmMywULRNwdi0eHRMPCzUJFgUuCwIjMghycSUTKBEXMhdvNTIWDTcPJTUQAQgTFQs8C3UPEB1zMgYIHTU9cSY0EitvCDUDLDYeDXwOJQFz'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[63]='NigrIxIlETIxPAktdjVwNjEgETd2KDAWNSwFKXUmdHETLnAjMhAtci8uMTcOJTYlNjQOJjEmNX0NPS91EzwGFjEWDTYKJXIVNj58dTY2Lh03FgdwNBdwMjE8C3w2JnQrFHVyEAg2dDQwJhMQCxcdNwoXfDUUDy8pCDwPfAkXBSsKLS0wL3U1bwolL28ILSl8CxATaxQAPX01Pi0sAXINcg8AKXANDg1xE30rbwkmN3ILAG91LzYqFjEtNX0yc3JyDQYLMnY+MSs2PT11CwcxKxw2ayUONjNvNXEKFgtyBXITKDUoMXELbzUmcSELAAMXCAg3dismA3ENDzcuC3IvKXZzKXA1DgssNQ4GIQsSEiF2CBEuERcRNzFxCiEKLhMVMgh1EjQlBXYLAiM8'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[64]='CiV0Nw0oMWsTBysxDwA1KzI+LSMBCHw3DSgDbysQcx0xDy83FAgrNA4uLB0BfTEsCyUTNTJzLygTCBEsMXEHNzItKzcIACoSE3JwEDAQM3wPNSlzCH0jcg8KNTQILTMyMgo3PBMHMzcLPS0XNRIxLjU0BysTNhErFC0xEA4mESMcCgMsC3MpNQsmdmsPcj19DxAqJTUPMzcKJT1xCh4IHQ9zfHU1CAExNgo3MTIPDhIyLA1zNCY8IS9zL2s2F3wyMQIyJTEuPTwPF3MdMggzbwowMBYcLXB8K3U3FS8ILTwyAHElNhcHMjUAKywSICtyE3URLS82EzwBNS8pCC0pbxM1ExULcnRvdjU9cAE2cCM2dS0wNggrI3Y1KRUPCDMQHAASJxNxBzAxBg8w'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[65]='MjZwPDItEXB2NjwWdSULLTEsCyMBcm8rNigrfHQXKhYyKDdxNQoxdTJyMBINLjMtNgo3KHUlCh0KFyM3K30jczQXMRcJF3JzCwIuJnYHHRALcgV1dnMrLg8PcBUJHgcoDyUJKxMILiYrPj0jDTYcHTZxDiYcCjVyMS4zNg00Dy0NDy4lNTUwHTUAIy12NSkXNTQHMREQASkvLTAWMiYxLAkXci4BcnQsDxc3cTVzNTQ1KAFxLwh8PHY2EzUTcgVwAQd8fA0XBRULEjcxNQ4NMjAlNyx2fTAlHC4pb3Z9LXwwEAwdDSYDcws9MBIRJigSdSU3cggwLhZ1JXMmAQ8HNy8ocDEyCDc1AS0Rc3Y1BhZ1JS03L3VyNg4XM3MPJTV1DS41PAgsD28RJQEx'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[66]='Cy0PbysSASx2dQE8CCgtczQmMykUNi0QNiU3MjIIMXArEgFrDygsJTZ9A3wLJTNydBcyHRQtETYrLhE2FA8NMQ8KMTwKJnA1LzUPNDUtCicPF3xyNRdwfDEGCy0yCANyDQdyLRQuHSM0EgMrNQ8HdSs2IzIIcm80KxcGFgE+LzE3JnB1MBB8K3YIax0cNXA2KyYoJzEeDTUxdTUtCi4pawsHfScNLilvAS0tNxMPKTwPAG88Mn03cQotNRUrNAAddSYrdS8HJSwUPAs1NS4rLQ0tIy0LD3BzNT18NQ99K3EPcgImCSYjKA8SKxccKDMxHDYRLTE9MSgLIBNvDSVwfDI+MzIBLS01CA8PMDI9HSsyLQ1zNCVyfTAScHA2JXA3Mg8xbxQAMXASIC0s'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[67]='MRA3awEwATE1NQsjMg81NjVyLXEcLi0rdCARaxMKKxd0EC4lHC5wIwslfHJ0JSgWdg98NwkmcjQLCAwWdSUzNjQSMzwPczEoCygtEHYALiUUcgEuKzY8Jw8QI3A1AgIhNQdvLnUlKzUNNQ4nKz03bzUsCh0NCHwtAXN9Jis9PTwvcykrdSZvNDQmDCV1FyV1AT0OJjU1PBYNLi08MQosJxwCNiUyAjwSNiZ8IzEAMCYOECUsMB4UHXUQchcNFwUpDTVvIxQAHSsUDz02DSgDdTI9Izd2PSk2Cy0FLDUtAxAPCjc8DXI1cy8AaxIvCCsXFHIGEgsuIyMrLA1zEzY9KzFzDB0TCD1rAQA9cQ0QNW8rIDVrNBYHEAsAAWsPPT0VDhIDNTYSAXETfTEj'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[68]='NRczIw4lBicOECkwLywNNzEtC2sxDygmdgd8IzJxBSsUMAFrNhIsIXZzNzx2chMrFA8JczI2dhAvD3R2KyYzdTYgMRcvBzUXHDUcHTIQHTw2LAAlKxADfDYuKXMSJRFxdRIDcgEPfG8TD28QFA9yfQguPh0BNTU2KwcDfQ4Scm8INXItDRI3ECtxBTUrNAs8Ni5va3Y1PTQ3IBE1DX0DPDYScyUcBy9wNj1wIy80DTQ0JSlrDR4FNg8AcjUNLSk2di0vEAolB3N0JQUyNi4jMismaxZ2BzEoDXMBdREmLy12MBMxLw4LfBwPNzcBcy8rDS0paw9zcjQvCC4mMig9LQtxBXY1JjUoDS0DMQkXchUyPTN1ChcAJhMIcC4UABEoKz58cAsPcDwxJRMt'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[69]='NBcpPAhzcnIBMBEjL3IzazUtNTETNgwWL3M0EisXcCkyACt2MQItPA4SM3EOKANyNT1ycAsQNRcxLAVwNSArcDUPPRAULQIhE3EKJgsCMS12LXItC3I3LjUALXwTPiVzAXILLDEuLRUrHgYSEwcJaw4XHSMIPSl1CAc8ITJyBS4SECwSCAcTFXY2M3wLCBF1NxYJIzUoMygLPAVzCi0NLis8BXN2PSs8dBAzNDEXEys1PW9xDw8DNi8HNW8xPAsjK3I0Ji82MzI1Nnx2DRAoHQkeBTQrJgFyNgItMQ0mPCEUcQASCD4jMg8AcDI1Fwc1EhIzcxM9DzQxCDUrMTUDcxRyNxUNAjAhDyhwLQEPcHwychImFDYsJQ4tNzYSEAM8KyVvEBEXHB01JnIo'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[70]='D3MrLnY+AzEPECgmATV8cRIXNTYOJgNzdjVybzUXKTQLF2sWdgdrFg4wKzQKFzcXNSYpLQ8CNy0yJTwhLygyFhQwA3APDyk0K3NyMjUCNCcxKBEpDiA0EhMHB3w2KCMtNj0LMQgHK3UyJi8xDQo3cgs8BXAUPAswNRBvNzUwNXEOLWsWKwAyJTEIEiUPczFzNX03NzUoKygcBw4hNgIzFRQ+ASMPPQ8tLz49FzYSMzEREC1xEwA9MQ4tB3APPnwQdggwJzQXPWsINiwWDRAxNgsXKzcPDzEVKzUzFzIPMBI2JnIjK30DLnQQN3MTNSkjAT0JdTFyMS0yB3IxFAA2HS82L2srFwsVFCgRdhQ+AzIKFzwlMQIzcisIfCwOLiVyCA4UFgsAEiYPNS11'
+repeat until true
+do DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv or 42 end
+while false do break end
+if oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa then QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=74 end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[71]='K3VwKwt1cDYNNjcXNR4FKysXBzAIACwdEw8FKTAXNxABNjEsCAIrbzIHfR12ByUXEy0JKQtxABITPAc2NjwJNnZ1ARU1Fg0jHDAcEg4lBzcICisXCiUSFhwwKy42PQgdFDABfA41CzwPKDE3DT5wLgomAiUBByl1EzYzLDQQAiY2CjcQChclNQ0eDh0PBzEodBcNcis9KzUyPT08DiYpby8tLXwxPQF2NyV8dXY9JTwUCG8xL3U3KwomE3AcCDwlL3EAJQhzE3MLFwUydgYNKxM2A3EvDwMjCy00EnQQHTIrci92FD0DcAg1ATUxHg0pAS43NjE+A30SJTMyKw4KJhIXPTYrNiN1CxYLNHQXbzUyCjcXMQ81fHYIdHYxABEjEhczNzUuJS4OLQEo'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[72]='LwcsITE1I3YLPXAsDQJyNzYQMB0NfRwlHC0UHQ4wLSgrD3YwDyUPLS8tcjU3IAEuKxcDNTISLTwLADISCxA3dhM+KxV0EjM2dRIRNg4eDXJ0IAISLzwPLg0KKzUKJnMdNi4DMjIuHXIrBwc8NnIPNghzLzY1LmsdEhcjfBwoLTV2PS0wKxYNcQolBzcIczMsNS4oJTYQNX0vNnY8Ez0dIzYmcnwrcgUjERYPKCtyb3ILDxMuNT0TKA0IL3wrBwsXNQcBdgoQHTQyB2smDzAtbzYufGscMC4WMnI8ITIoETwPAi0oNBIRb3QlfCkyBzFzE3IxdRIXLy0rNTwlMT1xIQ0gEXEBMC0Vdi03MhMsBy0xPi1wNBADKzFzcisTBw9zMQcBEDAgIzENdStr'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[73]='K3MTMS8wNxccLSNwERA1MQsgAzIrD3xxMSU3bzEIfBAvNTM2CSU1MjZyKiUSEHIwMhczdnQXDzQPLR0oLwIwJRwPfHx0JQEjMBcUJgECK3M2LSkwHC0RKwE9ERUTPAkjFD4wHQEuLTYxLnxrChYJLSsWD3B2NS18MCUpLRwwLXIPLjUtEhB8FTE9B3ULBw8XMiYDMTJ9NX03JXQ8K3MvKDEmLiV2LW98E30BLg8SPXMLEjVwdi43KQgAEiExDgs8AQ4GJTYuEiUcNjE3DywGJ3QQL3ANLXAoNhYHawEIHBYNPA8QNSwPMjJyKRA1EDMxL3ENPAsmKBYRJXYsCA8OJzE9N28UCCglMR4FNDQWFCUyPnMSCHN8cRMtKX0JHgtzMn0DKw4lBRcrIC0X'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[74]='MjASFjUAfHI1czU0ESYBKQ0WD28rPW8wNBAzKwgODywOIDEXKz0LfDEXKTwPKBwWDS0BNysScnM1BzMuMXEHcg0tASgRFwEpERIDPAo2NTQOLTMsCwByFwgPMXIOKCt2NgceHSslNBYINm8XEhcAJjclL3AcBwc2Eh4FNQ8INRUOEBE0KyA1cTI1b3M0F3IudgczKAF1IzEvChISNjYjbw0lKTwIDwUxCDYBFTQQPS4rNTMyCHVwLDImPX0xHg0jMQI9FSswNW8BCi0sFA8vfDEPIzcNNS0oEygsHQ82KhIyFzwdDi4tfQ02L3ETBx12CSUGIQguKiYxFxNyDxYGIS8AcBAxBwEXCC4TKysmNxAxLAYlDxctMhElI3AwJjASKz0tECsuK3wPLR11'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[75]='NiYBMRQwIykUPSYlNSUwJzAQI3wrJSs1KwcPFQ0KNiUvPQ0VDz0lbzYgNykIcik8DTArEA8PcHAxPA8xNj42FhIQK2sOEgF8MihwKxQIdnMKEDMoCAclLjItcjcNKCMpDw8vb3UQMX0LcjNvNQYLdRQ1KCU2PSVrMXM3IzI9JhYcLjwnNX0rbxEQNy40JTUwFDwJLTJzfHAPADUxERITfQ91PXULNXwQERBvcjE+JiUIDg99Ey43Kw4tfSZ2LjUoDXEPKC8AcHAPLiN1CywLLRMoAiV2MDEtCwgjLA82ayYKJXEWATV8NhQtb3EyEiNvMgAtNw8tNRd1JXZ8NCYqJXUmciMxcgMxEygBLnUXLykxdXItdBI9MRMHK3A3JQcwDjY1chNzPTU1Jm9v'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[76]='Ez1yPHY2NBYNLTV8NnIrKzUtL3IcKBwmDxIjFxIlK3YKEDEuNSUjNDYlcHYrcxE3ChcjbzIoE3UyFzU2dSVwazU8DXYyCCMQMCAjFzIIK3AUPi0jE30MHQE8DSkINQgSLz5wNTYlBiUNLjF1FAo3MjYoMCY2F3AVLzArFQEPEygNDgUrMQgvbxISLTASJS0yE3IxbwsmcDY3EjEjNCZ8KwguAXABABMVMQdwNxwwLXIrNXZyCjQFdTEIEXUOFg1wKxAzczIsCTE2LSVrDywNNTIIcHwvMDcuMj0AEjFyK3YSIAFrNxceJxQ1L3UTAisoEwczFwEAJTcxEB12CygBKA8wLXwUPS01KwITdTcXNysrNTU2AS0UFgsuKW8OLA4ddRBzFg0tfGsycjMX'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[77]='DSUOFhMoHB0xDgYlDzYtPBMtBicNLm8yLwctNQ88CzwyNAkVMS4jPC89FCULLAt8dnNvb3Y0BzAKLh4nMSZyfTJyAzcNAiM8HDYxEBIlHB00EDQmDi1rFg1yDzITLjd8L3EJdSsPcHELcnIsNiUTKysSNBI0Ji4dCxADNC8oMTwIPSlyCA4HNg4XNTx2NXA1NggtIxwCLTErdXEhDyATfDcXfHALNXJxNT1wcCsQMWsPPj0xNnEHFwgIdCN1JSs0NnNxITJzcms2PR1vEz4rcDFzPTA1EjMVCwgrIxMILRAxBys0NyY1fQ0+EzB2NnAjCwAwFg0PK3IxD3AyKwh2czAXKzV2cQktDxczFwEwEzIcACM0ESZ2cjIPCTcxLnEWDS1waxR9NCcrdQMQ'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[78]='MiArFQ8SNS0LEDE1Cy4tPAE1M3MNFwEVFAJwKTZyASMydRErKz18IzE9Kh02CjErDXIjcAE+ATUPFyN1di0KIREgLB0NNW8xDXMSJzIQfDwPPjFyDT4rFTIgNCUvfRExdRYGEjYuAh0UDg00FD4dNzE+PSMLPQN8DT0Rbw0lMSwNci9yMnI3NzU+fCsOFxNvMnUCFjIPLTArciwSDwIBLCssD3IcNjUwNjU3cxQ+EyMNNit1CjY2HTQXEicJJTUVFHELMAs1cyUBDwtyDwIjFzUtJSwNDhQWEw93EgsXNRAKEAIhNyV2fDQmKhIRHgstNiwLFwF1MzcyDw9xNSYzMg01PCExFw0uKwgpNDEII3A2MBIhKy0pcjIPMXIxBgVyDi58cy82NygyNQUj'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[79]='CDUTci8PBiZ2cj0tCw8JfC8HHS40JitvNTUzKS80C3UrEi0jCHI3LgsQKX0yACMjATQHazcmNBYNF283Lw8zEDY+Ezw1F3xzdBAtLjJzIysLNXZ1ERAmJhMGBSg3EjE3MiU9NBIlaxIKJmsWNj5wKxMKKy4NLXwsNQI8FjYGC3MrBzdyDzUPPAsoKysxKAE0Lwgpcgt9LTE2fQFrMRBvdTUlNzUPDglrLy0pLHUlEXUBNTd8NS4sJw81DRA2LBQSMggxdXYHbzIIcg12Kwo0IRQucCwUdTFzLwgvKysmLSsRF28jdgIjPC8tcDIrNS03LwI3KA8mMCULLBQWCHINMhRzNWsNdQE3FAABci9yEzUREC8pDwh8EA81Exc2Lh01NjV2fDEHBxU2Fz0y'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[80]='dCUOJTUWCzE2LAtrDRA9Ng8+by0wFg8sdB4NFS8tBzQNPQd1CSV0NhM+MTYvKCsxDhARKDY1CzIKJjEoNxApMDclK3wRJnMWCHUCHQsmKxUrLQ12FD41Iy8GD30SEjc8Kw9vNRQ2LSh2PQEtNj0xLgolK3YBMBE8FDYxLRQHNXAPICMuMTAraw4mNRULKD0xDXEPa3QeCSM1DxISMR4NcBIeBzUxPBQmDRADLCseC3wrdREtNXMpLAsQLygrEDNrMiUyFgECPCc2NAohdRAqJgo2AzQLCHIyNTUIJQslDyx2LjdxEhdyfA0KNzE1Dgc0DiAxNXQQAyM2JnEWATQNcXYAPX0LACs0Mi1wNQ1xB3UxD3J1NBADcRQ+NysTfSsQNi42HQEtNTABPQYl'
+for _=1,2 do end
+do local _=469 end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[81]='CxAtcnYPCyMyPQ8jDy03PBQPayUIPAd1CzQPcDUwKykUcQkpDihwcwEGB3ITLS0yDzUFFXYOC3MLcnI8CygcHQ0AMW8JFzMjHDYsHRImEXYvcgs1dnMDLTUCLiUOJi8jEzA1cTUoLCUrLXAoKy4rcyt9EWsBPSkyCigtMgolPTU1Hg83Ewc8ITUQHSkxFyNvDRIxKxQ+KzIBAgNvMi00JggtCzQxDwt8CAAdfA82NiYUNTF9NCA3cS9xFB0NJQ99DSUTMQE2Ph0INTE3CRcNcy89cHYKKDUxdj0KEg00DxUKJjQdEy0xFxQCMhINPQFzMnUDcHQgLSMvcjE1KzV2dTY9cyY1NTwmKw92dQ4XC3APLigWDiV8KCstJW8vKDN1DT1yPBIlBiE3JSky'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[82]='NCUGIQE1fBAKNQk1HAYNLRM0By4NLjV9dBBwcQs2KCc1NXZ1MS0dKTQQAzUyPQ0yCyYBbxQ2K3E3JgIhCDABNwoeBzcULj1zEw8+JjFxDXEvPjAWMgcAEgkmL3YcNitxAS03Li8oLXAPPiN8CAABcisPcm82CG80dj1vKzEoARU2JQgdDS0HfBEQcHIvB3w3CAIzLQoXBS02Lh03LwAjLA4XKygxcwMsCD4dEDYQEXETLjUoMhByNQ02fCsOFwAdMSYBIy8IdCMKNAkQAQcqHXUmNyMLPmsmMi4zNRwHMRcKJnYQNnIPKHUmN3YNCHZzCy5vLQ02LzELJXcdMQ81MAoQaxYyJiodEiZvNTcmAzAcCjV9HAhvLHUXLRcUcjMxAXI9MgklPCc2JnEW'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[83]='Lw8jPHY1FB0xcwNyCAhxIXQlB3IKJQISHABwFxR1EyM2EgEtdi0lFQ8XMh0LCi0VNCZyfCseCiEUACkVE30TLgsSK3wwED0XAQdvawslfCMJFwEyMg8vFxIQHXExDw1zC3IrEAhyPXU1ACktDXUzEC8OByMLdXIjNgA3KwoXNhINAhN8AQczdgtzLXwLNnJrAXU1FTECK3ILKAN1Mn0TLTFyKXwyECVrMjADczIWBzJ1HgsuEwA3MQs+NiUPAAN8NjURNw8PDTYLEG99ATQKJggoI3U1BwEuEiArKRw1cRIPADUrCz02FgsAKXU2cjImLzYoITclPSg0JW83CwgBLSt1chA2AgM8MnMRPBQuAXExByNzLz4SJw8IMSw3Ji8yCxArNhwKNS4SFz4d'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[84]='DRBwKwolfDEyCCMVMRcDKDYCAy12CjImEzQNFTIwEzwLCjUjFD4zNQ0uNX0JHg8wAT4BIzYQJSw1EB1vLwBzJQ0HPSMBMBwWHAhwcnQlKRd1JiM0Lz0BLjUgE3AOEDUrCxA0FgsQby11JhIhCzQHMQ8GChI2LSMuNj4DfQgKMW8ONnYrLw98KAtzDCY1FytvdnEJLQ01D3B2LjUXCD4uJg8eBWsyLAASdBcNKQEtHRc0Hg0rCz4uFgECNzI2AjAnCyYvLjECNSMTLi1zEhcBNBRxDRAyD3w2Kwh2MTEtcnEINS92Ew83LjY9fBccLi0wNi4xcgtyESkULRIWCD4RNxQIMzw1ciNwCSYzNQgtcCM2cQUoNS5vcgooPTYBPAcVERB8dRQuLykIDzAn'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[85]='DTUpMjFzN3J2cgErD3IrNhImL3wLLgNxKz0BcAosDywrPgMwNQouJTYGBTQJFyNrCSUFdQomLyMPEnArK30tNg81ATcyNWslFAI8EgE2MTExAjc0di4jKC9zdjQJJS11C3N2cisgEXIyEC00L3NzEhwKN28IDwExAS5yfBRzMTALcxwmNjUPLRQ+LTYyNAU1Ew8uJisQM2sTNjN1Nxc3LTY9JSMPLQkxMBI1IxQ9AxcBPRISHAcKJzcQIxV2CClwC3Nwcw9yKTEIKDU1ERAvcQg0DTUKEnApFAISISsuLTELJjMrNnI2HTJzKywILTExHAh3EismNRV2NgMsDSArcxQHDy4rEDAdKy1wcysHNy11EHI0NxI1PDIgESkPCColdRc9NhIgLSs1NjVr'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[86]='FC4BcTJyAywLNQ82FHJyci9zcDcIcg8uFA8PNQ8XLzc2BzV1D3UBcTcldHEONTMQKxYFMRwIcxYcDzErDQ8xNzIuMXAxKCMQNQIxNy81MTYvBykyMBAxKw9yNy0rJQomMXMpFQ02Lyw1AjMuHAc8JQ8mKxAxKBwWDwYNI3YAN3AIdREtEzVwaxw1DTUwJiMxCiUxNAgPATEOLQ1yE3N0dhMtKBITDz4lDjQPFy8wNXUPdXMdCiATLhwGC2sTCAwdKxApPCs9D3E2EHJxEhA3NzUODy0PB28rDQcMJg11ES11HglzMBctNw81Dh0vKDM2K3J0NgsuaxIrNjc3NjwFFw8lPCc3Jnx1Ngc3dRMuJSwLJTVwNCYzdQ0OBXV0JQ99K30TNw01cHU1Egwm'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[87]='NBIrKTESNXMRF3B1DQceJ3USPhIyNXElMiU1NXUQNCUNIDFxCjUPMSs8BSw1MAwSMi00EgomM3YPPTMjMBARc3QmMWsNNTUjChczcA0XJXUIBgUQCA8yJTAgNy02dTVzMQ8rcjUlLTYIAnI2NQ4Lcw0ODTYUdQMwEwcBdgtzA30yEgE8NQ8xEA0QEzIxFwM1HDATfXYPN3U1LikVDyA3NjQQfSE2AHIsL3UDcXY1EXM3JQV8MnU8IQ8AcGsyEgEsL3ITcgt1AygyKDMXHDUSHTIlKWsrLQISMCZ0cwsXAXAycywdNXMxLXZ9AzcLPi8sE3MjdjIuMTc2NX0hCA4NEAEoLB0vLQ8jNgAoFnUlKh0TNjAmNgABFzIHMCcBNikwLzQHcSsALykUdSso'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[88]='HDAxfTEPfRITNgImKz01LHUXHiE1DzwSDwAddjUmMh0wHg4nCz0laxwuPSgOJgFwAXIDKAg2IzE1Byl8Ly4RdTUKHBYNcjQSMhctMAsmNSMvcgs2KyAjazEPNhYPAG8tdn0SJislMSwLIBNyEhIREBEmNxUULh4WNQAvdREmMCU1KCsoE3UjazUOB28xPQUoNQgpNysXJXEyJTd8DSZwfA8tEhYyEBMrERdvNwsSLW8rEnA1CyY3Li99MTAxFw0tAT5ycg0KEzQNPTQWMSU8HXY+MXETCC8pMhAlFy8INW8wJXAxNSUrbw8IcGsLEHAyMj1yfTU2NTwcLSVxdRJwFzUWCCY2JS1vHC0NNA8CMiYILi0wNjYzbw0GC28LczFzNTUHPC8IfDUULgFz'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[89]='DhclNC89CysrNTFrKwAdNStyCzIPLTdyDw98KDItK3IxFy19CiwOITQQNBIUfRM8CjV1Jw09Ly01NTEtAS0jKwEIdxIrPQkXKwcTKA8sCTQIDwk0ChBycTItLiUcBw12AQAeEisIPX02DxF2NRclMDYAby4xLAkVDTULbw0XcBAULiYSER4NPBMIPX02Dw9wD3U1KHQmKBYUCjU8dg8uFhQuN3MxcQ98DigxKxwoLB0TDwMsC3EPMDEAPhYrDxQSLwg3cQo2cCsSEDwnMBcpFQo1fSETNS08MQ8NLBwuI3ANCCodKz0BcTJyci4yD3wrE3MDcQ0QIysIBzE3AXUTKDQSLRcxLi11CygxIw01BxAONncSCRAjNgoWDhIKJjEoDQc3dg0OCTR0F28x'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[90]='NiwAJXYtAXUOLXMSChI1LTcQJTE3Ei1zNxcHfDAlBzYxPQkrLwgDPCsgIykxEAEtNS43Ng4mIy4vLitxEhAzNgtyKXE2Fy0rDXEFLjEPMzwNci08LwARNBNzLSMUKHItEiUJfAsgEhIUNQ8uAQIBMQs2MTQ2CHxvD3IRMXUlLSsNPQYhMXUyJTYtNXN1IDE0KwcLNxQuHXMxNSwWCDUTbzYHEzcyEBEpNgg1NTEuLTF2MDF9Lz03EHUlPh0LBy9zMQBvNC91cnUSIC0yDwYAHSsAcig2Hgc2CwoxKzUCI3ABci19ATY1NQs2dnABLnEhKwoxEAg1BicUCjFzMnN9IRMHMywrPjE1CzARNRESHCU1EDNxNjY3KTYOBSx1Hgc2CA8FcTUPCRA1NSwm'
+do local _=229 end
+do DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=68 end
+pcall(function()end)
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[91]='Lwh0EBMtfG92KAwdCD0vFw9yBzUKLRIhDiYvFw0HcjETPgF1NyUOJzIPLXMvCG9yEhAdMTIPMRANEnAodn0tcjAlA3I3FzM1Ky4DLAFyPRcxJXQoHDY+Fg1ydhc0JQUodCV3EjEHNTccDxEjdRc1fQgAMCYRJTF8DwcjcnYCAy0IPAs8NQYLNgsHAicIBys1NjUtbxQPCS0LPSsrMgdvfSsPKXINcjFyDhADazYPayYyPQ9xNyUsJjUmAW8NLAV2CiZwdg0gAxALKHAQMTV2MHY0DRUvDgtvAQITcAEAax0xAHEWLy4pKzYwATwLJgMwNX0tazY1fCMrNQIndi0rLQ42LBYULTASMi0HNCtyNTQrJRwlEwgwFjI1EzQTCHI2LzUzNgo2AXMTdTcy'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[92]='ERcHLRQ0BzANPj08DjQKFjAmIywTNTUXMBBvdSsOBXUyfTErNjUTMAEAayUvLjc1CjV0cXUWDSwyLAtyAXUtKzcSNCcBCHAjdCUxMRM1KTYOLW8xDzUUFjY1cyUxD3RrKxA3LTY2MysNAjwlDw92MjAgK3UrCjUjEhITNS8PKxAyCHYtDRADfBElchB2dQFxKwIBF3YHMzcKMCsXCxcdcREXIxcrJhIhMT0jIw4tcHMTdRN9MQcpMi8uA30JFwsoMQYHc3YoPBY1LRQdDy0KISsmMS0BD3QVL3U0JgkmLy4PLSlzHC0cJQ4uATIPLjEXdRI9FTF1cyUNcgNrKyVwKRwuNTIINA8yDjVwcBwwLBIrLS9xdCUrazUQcmsrLiwmdRA1bxISPXArCD0u'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[93]='MXIrPA8AM3M2cm82Ni0vMTYtJSwrNXYVCD0HLg4XIy4BcnRyNyUGJg4QKCc1Bgl8EhYFPBQ9I3ATdTUQMQgSJjQlBzUxJiksAXIzcXZxB301dTMxNBA3bwtyDTcLPQs1HAAdNhwCEzY3Fz0VNgcvEAE9MhYLABN8NnItIxwHDXELLh0uDhArLDIQPBIPBxEsDR4FFw0tcnw1NTd1MQIcFgEuMyN2NXQpEzQPdQgHcC50IC4lKzZyaysCNTU2JjEuCyZ2azEAKzIUBwInK3MBdjU+ETE2ABMrCD4rdQ8IfDIvchE0KyU1dRIgLhITNWslNiArczYtC3I1LQ11CxcRcDJyD30vLnItNnM0JzIlKTw0FyU8CABvMg82cHMKLAYSKzURcjI8CTEyNTUt'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[94]='AQI9IxQANyl2ADcsCD03cg0PbxcBfQMoEzUzKw0KAzA3JRMyFAYFcwtzMS0IfSNvNS0CJxIeCS0TLX0dCw8xazYXAXITBw1wCHU9fSswEXE3EHxvLz4pcgEtN3IOJSstNRdwNwkmdnELBytyKwdyfXY1dG8NIAF1D3IDLhRzHB0PEjMVDTwPKBQ0CTYUcm8QFDURLBQ2EyMLNAkpChApNnQXB3AyNhwSMg9waxIQPRUJEB1zMgc8Eg82LB0cDwcsLzULLS8+AywBLj4WCxATFTFzM3MIMCtvEhdwKzYgEiU2D3JyCwItKwEHKiU2CDVwChdydXQlKXUBDwFzMSYxNDUlbzYTB3wxDywFFw00CB0JJRwSCyY8IQ89LSgrcgAmLw8RaxRyKzUxDzF8'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[95]='FC4wJgolBzExEi0rAQYOJQ89E3M2cQoWKy0NNggKK283JQl8KzY3KxEeDS4xLQcQDwA3dS8oNS4NPSVxEhcBPAouK3AyLissFC0LcS9yDzUcLTUwNBcNFw4gAzILEjEVCAczMhIQE3EKLjdwMBJzJQEwNXIOLSUrDi18NzI1CWs1PRMyNS1zHRwPNxUNCHByDSUTfDI9IzwyMAEVMQ4NcAh9K281EDIdHC1rFjEKNTYTPjQhNT01MHY1NTUrACsoMBc9bxwILTU1Hg0uEwgsEgh1MXwrEC8uDx4NdSs9byw1BwE8Ni0JdhQ9JSwNCjV9MSATfQsIfDY2PnAsLy0dcg4mcSUBNW8xChApNQ4uPXINADNwCjUwJzYQMTYTNikXKz4sJRwKARcLKHAt'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[96]='EiZ9JQ8+ax0rLAVxCi58bwEKI3Ivcm9zNg8rbzI1CXUwEB0yCiUFdhRxBSw2BgV2dgAoJQ0uJTw2JgMuKwgDMgsIb3MPDy8XDwcNcwgufDUKNgFxdRcJcBRzMTQ1Pm8oCy43FzIlcm82B3EmFHEHFzUHPCcTAhNvMT1yIwh1MTcLIDU2MSYzdTIXNhIrHgUpFDATFw8ILTU2JnBrMiUHNy8uLh0rEi08NQABKDYQLhI3Eis0MS0jLnUlKCY2LhMxdggRFzAXDzcBNTMpdn0cJjElACYrFzImAS4DLRQCMiYwEC19HAI3LhQoPSh0Fyl1DSVvLhQ9CTUwIC01K3U2HQ42NXIyJQMQNCARdjE1ayUNAhMyMRBzHRRzcnAvABEoCy0jKRIQMywrCCgh'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[97]='CC0HNhIQEy4vABInNnIvNzFyPTEIPQktEzZzJiseD292Lh0sC3UjazI1fRIrLXJzAXIoJRQ2MTAUCAwmL3J2fHYIPB0Ucis1DjYsIQ89fRYNLnA1MTYRNRM2E3IPcnY8DwojcRwCPiYKF3AXNCA2JQ0GDW8JEC9vDyYuJREXARV2NAc3NS49LQ0XfHUINSgmLwArMTIKLSsILhEpAX03KwsHDyMrJTQddRYNLAoQEysOJSM3ATQHdQsXci02JRMoMR4NMTYtPTIRJnxvNRIjb3YHN3wvBgsrNhIRLhw1NywKJhMtMBAjdSsAMzIvfQwSDTUHMQoeDXMJFzExChIxfQkmPCY1BwkoDihzJghyBywNED0uFC4jKXYtDTY1ci1xFABycjYPC3U1Fx0X'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[98]='NSgDbw9zNSwBcgN8NiYvciseCygvBgt8ATYvcgg8BXEPJnI1DRA+EjUlPTQPJXxzMCZyIy8PIxUUcy8oNjAuJQ8XDTQPLAYSNyA1NxwPARU2ECUtAXMRLBRzEhZ2CGsdDSUHLQ82cSExLTwmDS4RNSsAcHYyFw8sCRA1fQ8PEhJ2LAonNRApaw8wLh02MAwdHC48JghxByMIdS02HAI1KDEoN3w3Fg11dCYRMRNzdhB1Fy0yDyZyfA0lIywRJissLy09NhwGD30SEAM3Mi5wFQ01AzUKMAErLwo1aysIMXwxPSk1DhczLAgIciN2PgN1Dy4tKAgIERc1JQE3AQcFLRQtDxABLRMtCA8tLjYALTcrNjF9L3IHFzYmA3ENKAF1DT0zbysoK292PhM8'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[99]='MgAzchM+JXI2Nnw1NiURchIXE3UyMBN8DxByfAs+bysLLR1wK3UzNAgHbzIcNTU8CyUBcjAQNTEICAEVMT43EA41N3wcLjUuCiVybzU9MTErNXQ2Cyg3EDZyDiV0JQt9Ey4oJQsgIy02fTYdCw8TcjUIMzwyEnI3di58KBIXMRcUKCMtDTUJMgs2di0yCG8jLwoDN3QSchA2cgUrNS4pFQs9cC4cNSssMQArFxMALWt1Ejcsdj4rKQh1PSgcLiYlCDYDKysmNWsNNA9rMTZvcw80BzYLPTdxFHUrNS91I3ENJSlwNBcNdjFyAxA3Jnwrdgg+EjYlfCMLcjE8HA8xfSsXD3MNBgc2CSVyNzV9I3EBBgdzMBASJXYuJiUxEDMXNRctczEuA3UNCjE3'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[100]='DSU1fQs1HCYcAColMhcJcgkSAzYUBggmDQoRcQ0ILW8yKCtvDXM1MTYuNzUBLQsVHDURczE2Myw2cykoMRcpNisPNS0ycxNzNBcHawoucjd0EgN8HAA1KwgPERUBAC1zDhcGISsgMXU3Fw9wMSwKJjE1Kyx1FgVrNjUcHQs2Ly0OLRM8EwdyNCsQfHM2PjYmNigTMQ0AcnUyEDMVCHUMFjYAAzUrNQ8tDQcBPA4XAxATNQYmDz5wNnYPAXY1JnwpMSU0Fgg2Ly4yJjVrMj0CITEgMhYLNX0WdgIjLgh9HBYPLTIdDRcFcjEwLRUrcQd1NxA9EAtzb3A1F3wjNQ8BEDEtJXELDg4nMhJwNjE+EzcPAjEyMi4lKxQHD3wwFwVrCi4tMg81BicyLSt8'
+pcall(function()end)
+do DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=_lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM or 591 end
+do T=QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO or 176 end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[101]='Mn0RPAg9bysTLiU8L3IBKwkXDzUrNWsddnMxdRISASsICC4dDXIPMQ4uHTcxEC0wMXIrLg4QMTYPEBIhNShzFjE1I3YSEDwmDQABdghxBy0xLS92FA8PIwsAASkLJTUXFAAjdRMuAXU1CD1vNggcFi8CLXEONgwlFA8LNSsCcCsBD3Z1NQAtNnYIAzErLiUjEy0BcAsuPTcUNAUsCiUPfC91A3I1BylzCAA9Nw8mKTUPNRM0DR4FKQo2NywyNhMrNCVwI3YwIzILLi4mKxcBcTEQLRcRFwEQFAYFMQ8sDRV2BwYSdBIsIQ9yKBIcD3w0DT0zNws2EXwcNj18C301fDZ9KxUxDgUtNTY9MDIlDS0JF30dC3UxIw91IxArBzcrMhcPchwPMy41F3At'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[102]='MRBxHRRzfDYrJS8tCy0MFjUwMXITD2slAS0NLA4lKxcPAHAjMQcOJzEPcjYxJi1wDiYBEBEXFCUNEjUxdnJvFTYtBxU3JTQmNj5yfDZ1EzEUcnQoDjZ2IxMoNXAIDwMrAT0JNzYPMCYvADctdCYwJyslM3E2Bz1vCy0DLAEHEXMPIDQSE3UrFwgHBTc1Ni0yHDQHNDYsCBZ2LAYhCz4MEjAeCTYKJnR1Nig1cDYlCyt2KDAlNhYFKQs+ayYKLQE3MhItcjE9HXE0JnQpCzV2MQ4wK3AxBgs0CRdyN3ZzdHEvCDAWNxIxFQE9CSgrNQYmMQ4AJQ0lKy0TByYWEywFNTY8D3M0EC1vCz18LgoXDWs1cyksFAdvLTIKEiELCHQxCDUJNBEQayYxB28w'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[103]='ERc3cw0tI3V2AnAjFAB9HRElfR01Lm9zHAAzdTAXJSM1cwMjDTAwJQgPMXINNAU2DiYwFgg8CzcvcyMjKxBwNi8+NCU2cwN8K30rdhMwEy42DzM2MCVrHQ8QHSgOEjNyMSUDNzYQA28rIC0XCi0GFg8XL28xNnYyCHNvLi81NzU2cm8QCyhxHTI1KzIKLXESKzZ2MBEmA3IyPjVvATAxNg4XK3ATcnwXMS42JSt1AysvABMrDQ9wNgECNzF2PSMsNQcmEgowN3YIcik3EzA1cytybxAIMDcuEiYxcg8PN3I2Bz1xChcHfDcmAW80ECl9NCZ1EhwtLTwPAgNzMQoTMDAmPW8INitzdggDFQ11Eh0yFyM3DwoTdXYKE3I2B29wCD0DMAooAiYTPm81'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[104]='CiZ2dQosDXJ1Hgc2dBAtNRwPBiYrCgEyCHEJdg8PESwvLTcXESY9cCsCA3ATBzc0Ly4zFQ09ASx2LjE8DXINKQh9KzwLCD0rCiUJKHZzN281LA4nNX03Fw8Ab3ETCDErNjwFKw8PdHYPBxM8NyYjNisXNTEcAgMjMT0jcw0mcDEyFwF8dg4JNAFyPCYSEiM1Nj4zNQE9B28LCBN9dRB9HRMHKiYxB3wsDhcvFTYXfDIvLXJrNS0xNw8uKywID2sSDSUFPDU9CzEJEHJzFDYvcDIAHXMTACkyFHENLDUuMiUJFxMXNyUTMislcDcREDdvCDUvIw8HCxAUCHw1CxA3NjE1MXMBLQlyDiU1fAsHBTUTNAt8NjUwJTAQcnMcLnJxEwccJhwuI3ULPX0l'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[105]='MjARKHQSATQ1LSsrCDYRFwoeFCYBNgEpKxcDbw0HDzYBPQEjMjYjaxwIdScPPRMjNyUtLggAExUKKAwWFAA3azcXA3w1PX0lHA89MHUWCzwvADYdFAACJTYPIxcxIAEtC3J0FxEmb3EvdS02KyhwLi8uK3MBcxIdDhdyMjJyN3B2BysxAS4BcQgAIzYPAjUQMiUCITY0BXEBDhQdNS0Fcws1cCwKFyk2EwApLQ40CRAIPQkjMXUjcA9xCzcPFwUVDSwLdTcmLzUPFzE0Cz0zLBwwAxUOMCwWCDA2JSslARAcCDE1Cy4xNzUQci4TBy9rNxAtFQsQJhIxLm80dRcJcjUmNy4rPQFxCHM3Mg0ucnIxBzd2KxISJgg1dnAIMBN1dgo3Kw8XHTYLNTMV'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[106]='MTYtcXUmEy10FxwlDy0PfTYlM3EPBwkuNgITcTI8CXUNfTEsCSUrEA0XK2sILjErDxcLFxwGB3x2LS00NRcPKxESM2srPQ8yNQJyawo1NTYcBwssCjY0JQ4eByMKEjUsLwc3PDFyLzELLi9vMSZvNzI9NTYNcisXNQBxFismETQ2DxEQE3MTfS8uJSs1AD02HDA3KwslNXASFwlyCjACEjQlM3wTLhErdnELcg0HAywvLAcwNggjLA4tHSl2ABE8Kwdvc3QldxIvPQ9yDhApMXYtI3MwJhNvDigBNStzdjETPQYmCxBvMTIuNSgILQExAS41NzIXBSkLc3xzHDQNMQo1NXUUcytvLzQHNTQXE28INSk8NSY3ciseCzATKDQnFAI1NzYmNhIPCisV'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[107]='dBApcAsPK3x0IDAnATYrNg0HLh0rD3EdFAcvdQ89E3MTCBE3MSU3IwF9E3A2JXRzDT4tNCs1DTQBKC0rMS5xEgFzcyUUCBF2HDY1NwgHLykKJjFrEzYxcjcXMXArLXBvMX0TFTcQPCYyFx01DQAjFzUXETE2cj02CSYDMRM1dC4vCjE2Nj4BEDImNTx1Fg0yAXN8cwE1fCwICAN8DRYJdTU2LiUUBy00Ly4oEgo2MXIOFwohCyU+FjYoNy4NCDUQEwgBFTEQJS43JS11DjUNcDIQAzAOJQdvdjwLLjESMzI2KDEuDz03cg0XCXEyNW8VEh4NEDYucCM1c3YXNQcjchQAfCwBDzNxdBAdLXYtfHAvBwAmEzUyJg8XETUxF2sldi0xbxMGBiZ2c3Iu'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[108]='MRJwNzJyCXULLSl9FHUTdQkeCBIREnMWdCUNcRwPcjwNEjcXCwgrLDY9BSMBD3JyCwARcTcXCTR2PiNrMhcFLA0uci01dXAsCD0TFSsSNXI1JW91HAgxbw8IMyMNF3B8MBI1fA8PLh10EC82MSYTMQEHJTIPc281K30RKTQlDWs1JQcQMSURa3Z1MXExMBErDi4tMBN1cnABKCssCSVwMhwHNTYKEDQSMggjMnYufScyDwl1CHJvIxRyBWsvABF8AQ8xNw4tE3IPCHBzESZrHRMucmsUByN8CD0HfXZ1ci4xcj08DT4rKXY9KXILcgE8Ci0JIwgHcHY1CC0XEiVyKBMsCWsUBz01CAcPLBwIfDUPPQU0EzA1EAgCDCYLNi9zDw92NwoSPRcOFy0u'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[109]='KxAvdTY8DXYcKDcXMSZ8PBM2PTAxNi0xFD4TczJyPTcKNjwhNnJyfTQXPSt2KBFyMXISFgEtD2sRIBwSKy0rNxQ1IykBCgMoER4UFgkSNCEvNgEudRc3EDYCMXEONi8VDw4Lb3ZycjV1ECkXCC4jFS99K3MvfSModgh8Iws1cC52LQ9rdRISJjQgNy0LB28QEhI3cCtzcBcxFz1yMBcvfAgtETcJIAMxMQh2cAEtAhISFzcpLzZwcDVzMTwTPgMyCD41ci89KXUPLhEyDi5wIzEtAyMBKAwlAX01cBN1LCF1EjN8MQARcysXIzwLIDV8dgcJMRIlfR01LQkrdi19Eg4uNxB2Li9zCC0dEDYCcScxcxwlEw4NNgs1NSsTLTFvEz0NLDUmAygBLSU0'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[110]='dCAtFTcXB28rLTAhDR4HMgEtKXUrKDErDjAjawsQKXwBPgM1FA9wci8PN3EBMAFyDS0pNjUIKXEOLS9yCzU9ECsAA3I0JW83ChArNAEoNTEKJi19DRcLEDYmPCcxNilwNShyczIHfCwSJnIoCw8vcwFzKXUrD28odCYRLQ0oEXEBNQ80FC0Paw9xCSkPFgdrC30tFXY+LCcRFz0VKz0Tcw1ydHIxcgU2CwYNMXUgNX0UByVrC3MrcQhzEiE1JjEVEw4OJ3YIEzYBBy0xFHIjLRQ+KSMPJi9yCxAjfAs9Ky0TNTN8EiVwNCslchAwFx0oAT49FSsmEy4NPQtrEy0HcwoWCy4NACUXLyhwMSsuKX0yJQ1rMQ4LLg0SM2sONgErMTUNIwh9IysTNjYl'
+do local _=391 end
+for _=4,5 do end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[111]='DjZvMQ0ocnIcDywhCCgTcxMtb28RJTU3AXN2MQouEXArEC1wLz43fDYtACUPCAE0AQAzNhMPLhIUCCstCAYNLAhzAh0NEgM2MTUTPAg1PTV2DzdvNQg3cSsldiw2JTASChBvawslC3MJJT0oAQ8yJXYIdCgTPS8VC3ITNjcmKiUBLhEpDy4zbzclMTQILXx1ATVyPA99MCYPcQkuFHMxEHQSI2scKCwSNCVvEDE1EXYPLQEVMTZ8cg0gMCcyKDc2KxARLBQ1N3MNNSssLzUTKxMPEiExF28rMg8SFjImdBANEDMpNj0PfTIPCXA2By91HCwJcBM1AzI1JTVwDQcKEjF9Ny01JW8rESUpLDJybxUONRInKzUpazJzETwxDg0XMTADIzIwKzUNDy4m'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[112]='MQAzcgs2Lh0cABISdCUBEDIldig2AHJyDXVyczV9Ayt2Nj0sdRcjdhM2NCYrFx4lD3MrfDJzdDR2cik8MT5wMggIN3wrPjNxNS4pLRRyDiENNiwmDy43FQs1KRAxFgt8Cz0jdg8tb28rCgMVKwYJcTYmPCUKKAEuKyA0Eg0lLTcUNTcyDxICJg42Kh0xc3UWDSYDKAE2cBUyCCMVdgYKJSsldCsrAjdzATA2JhESLSwxPTwdDz0LcC99NTIxNXYwDxcNFS8CKzYxAjVzCw8pczU9NykrBykQKz18KTUSMTw2FwEtFDQJbxQuHSsyPQM3KzQOIRM0DSgcLj18DQclcTECM3YKICMjFDZ2fBQ1L3MINi9wMjURdgs9LysLJnJwD3IPKBQ+EzIOEHAt'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[113]='CiwNbwstLTQvBgktdnIwIQEHLWt2Pj1zEwcjIw0APCETAC92Ng8vPDZ9AS03Jm8XNSARNwslcSUTBywSKy18dg40DyMRFy1yNxB8fBMPfRY3FglzNiYrIwsPDy0rPiVzAT0jcBM9E3I1EDdzNRd8fBN9MSs1ECMoDiwUJhwAfHYBPAoWDihwLQEPLy4TNigldi18cDYWFBYydS4WESY3PA0tHCUNCCs0NgotKC89BysNCjUVFD5wLBQPMSM2Pnx2K3N0bw8wK3YrcxFwNgIBNzY1cnMNci9zNyU1PBRzHCYLLQ4hHAA1bxQwESM1MAMQFAB8LDIKA3wBNStwNSUTKysWDy4SFwFwChAzbzU2AywRJTdyE3NvMTYODSgBPQ1zHC0La3ZzfCMSJSl9'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[114]='Cy0jLjAXPS4SIAFvdgd8FwE+cyUcNiNwC3MRfC9zb2sNPh02Ky4jIytyNW8cAB02DXM1NRwAHSkLIC0tMhArci8oMSwTByt1NR4PIwsAHTR0IBImCjUpNRQtA28PECM0dj4RLgFybxcPcn0dMi18bxMuMTV2cQoWHAA9cRMHPB0Pcgc1EzQKHStydScUczE8CiVyPBQ9MhISJnJwCHItK3YsCzIrLm8oMj4zKw4eDSkJF3MWCzYxbwE9E300EDcQDzAtNQ4QNxUBDggSFAAqJhEmcBcIPhM2D3ENcjE2KXE1cwMuMQh0LCsIdnUwEnIuDzZzJSs2fCsxcgcVCi4tNzUScnA1AhE1Cy4dNQsXIzQ1NnQpCjUBKDQQNTR2cxMrdBclFTQldSYOLQYm'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[115]='DTUDdRNzPSt2Dwl1Ky0BaysQEzAvPTISNxBwMhQAMSMrCBwldig1cHUmEiYcCHQ2Ez0LcXQgNzYxChEjNQYKJQg+HXESFw8sCwI1LS8KMhYxcgsuNyABdg9yATQ0JTVrC3J3JTFydDc0IAEjFC0FdTI9B30BPjdwDhcjKAgsBTcyLQsyNCY9cwgHDSgPEBE1DiU8JgsmETwyBzQWMS40Ji8sDRA2NXxvK3EHLgsldHExdS01Mi0CITFyLy4IDw4hMi4cEjYKATYBKBE2NXURLSs1dCkUNSktdjQNKQt1Ny0UNSwdDyUPKHYsCXUyPQ0yKx4HMhwuHS0SEjIdDX0RIwsALSgyJnIuHAo3MQolCyw0FwEVKzYyHQ0tJSwUcgIhNRIRcjF1MysUfQEx'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[116]='Lw8NLg8XcDYLLi02NX0uHTQgIzQKIC0XdCYzKw0uLCUvAAISMiACJw0oEiYRICtxNXN9HXY+M3YLFgVwCwAdLBQ1MygLFygmNQgtNXUQL3w3JQtxCjV2MDE1Ch0BPQ0yLywJcgE1cx0yEjdxKy41PAgoMSwrDylwEiZ8IwolDh0JHg8rK3JyLDFyDyN0Fx1yATY1NggKEy0BPTUyESAyFgt1cjEPAjM2EzYrdXQeDTUBNXQtNS0dNS81EiEPCHclNiUtKwsmdDQNHg8jNnUCJw01PX0rDzEyCiUPfDAXNTc2JhwmCHEOIRMODTJ2D3IuEzUCFjIHCiErDwVrATV9JnYuAXYRFy1vdgczaxMKLRcNPQk1DwdzJTQWBTULLA1rMBctNjY0CTwBDwct'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[117]='NgcBFRwHLX0yD3RrLwAxKA02KSgILikXNgcTEDYAcjExcnMSFC0PFzUSLRUyBwdvMBcCJQEIMXwIPjEwNR4LEBM1fRITKCMVKzULbzJyMiZ2CAEyNCUBNjY+MCESJgwmdCYrfDAQA3ELPgFwNi4RcDElPS42JnwtNxAtfRw1D3EPDwMsKxc1fTZyESg2KAFyEy4Bcg8HKTA2NXA1C3NxJwsIdR0yBzV1Mgg1ECsQExV2LTIlHAA1fC8HAhIBPjE1dgojcXUlIxUNcjMrKzZyNistHTQPPSwSMQg3KHYtfHEyNXUnMig3MjclN3U2EHByNRJydTVzPS4NHgAmFHU1IxQ+KX0yJXIoMhAlFzZzNhYLNAk0NnUjcTUSKzUycioSMXM1NxIXMzE2LT0V'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[118]='CwojFQ8QMBYIcy03KygjcTUlNRccLR0uMnITfTVzLXABChF2KywFFw42EzQcAj4mDz09FwstBzQyEgEyCAcJNhMKLTABLiVxLwcPLQ0AKzcLBgl1CDYREC8oNBIPcgAmMCYjazE9DhILAnB8dRIRbzIgA2s3JjMsNhc9EDYAMXIxJi4mHDYTfCs2AzEvCDISEwc1NBwtK28RFx03dCVyLggPMCUULj11ESYzK3YHD3IOJQglMgczNQ0PKygxcilyChAtNAE1cyY3EhM0NTYTKwsoLCUBcy92E3N2NxwHB311JQ8wKygtcAoQcCMNchMsCzUjPAslAWsKNTU2Ew90NwEHciwrNQ8rNQ91Ji82KzwRJQM0Mi4RcjI+NXwxdQEXNyV3JTUGBxc2F3Bv'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[119]='Lz58EDYPdRJ2LQEoAQ4PazclATwBcjExLwgpMDEIayULLSl9MSgxcDYsBzALKD0jDyYBNzclPTUNCi0yNggBcHQeCXEyFy0uEz0Rbw0WBTEOJTcXK3ENLQ4XESkPPSUQNQgRMTECAy0yNS9xDz41Ky8HcHMxAjU3CxYPby82Ly0vAD0rKzU9NjU1MSM2PhE8LzAxNRIlCy0vcnZ9KxclFy8sB2t2CgFxDR4PcxMtLzISHg0rMigTczQXLzZ2LiUoDzAsFnYPbzUvNRNvDQAtIy8HIxc3EAEQMi0qEgsQcx0vKBMVNhByNgo1LzQcCDM1FDYsEgotfHU2MCsVCwh8F3Y9PXEKNQwmNhAlNCslciMONhMXE303PDQXEiYrJT0XNSYSFgoQHTExB3wt'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[120]='Lw8xLjFyBRUPLhNxFHIpLi89NRANPQoWNXUjb3QmLCEyDwk2C3U1cAs+chcOLTEjNxARPA19AXE2PS91Mj0jaysSKysyFylyMhcPNggPPCUwFyt8MnJvLDUufC0xJXYoEwIxEDUoM282cz1zDiV9EgoQNzQ1PR1rFAIxLDE+JhYTciNxDS4RFzE+A3UUPAtrNT0pLjIPcHV0EClvNyZyEBQIfR0NDzNwLwotcDUocHF2NS8rCD1wKTImKB0REgEuMRISHS81My42NAoWNhcvKSsWBzU2KDUsCz0FawEGB3UxAnI2MiU3MXQlfHwBCCs3DS0db3QlNxAOKBErDRAdFwg+chc2Jnw8HDUxfA8QLzIBAhISNnJyLAsuMRUULQ9wMRcBLg0XKywPLQM0'
+pcall(function()end)
+do local _=544 end
+for _=2,1 do end
+do local _={30,73}end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[121]='CyAxKw8PMCY2cQVwLz4qFgo1AzZ2NQgmNjUFNhMPMBYyJnEmEhBzFgEIARcSJW82FAYNLAEoKyh2ADd1DyYDcAEAL282Dg8oD3Irawg2LxUUADE1CH0tfHQWACU1cgEyESA3bxMHIzc1Hg1rDS4tNxQAMzUvMDUQMiA1chRxCXUrJnJrMj4xMDU2E2sPNi0XNBAvFzcldhUNNTwmNRAxczIXcxIBLn0mCyUHaxMtKS41dQMjNjUuJTIuM3B2Lj11HA8JcgguHXMvAC11KywNdis9MCUILmsmFA8jcxMCEys0Fw9wEiA0FjUIEXExEjNwNggvdRMoKzcBdTV1NX0RFQoSNxUvfREVMSU+HSsXC3EvNi8pEzUOJjICKzQxJX0WCRAvKAEHCSkyczU0'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[122]='L30TMA0PfHwJJQ9zKwA9cBRzEhYrPTcxMj5wKDYSERA2LjQhKz0sJzV9NzY1Ei4WDhclNA81fHM2KDc8dRBwaxwHfBAIBws0MgcjchImASMBADN8DQ8Na3YKK3wIciNzKygBcA4mcC4PNSsVdgh8NRwHKhYOEjwWLwIrcysoASgxLSoWNhc0JQ8oIzYrcQgWCSYtFXYoES0TPiMuAQ8JLhRxBxA1CAwlNg8NNQE2diMyLikVL3IzcHUlERUxPnIjNS0rMnUQIzwPDxEXCiU8HQ9yI3YSFyU0DQdrJTUGBXUxNQkQHAATaws+NSMPJQIlEwoDchwHNzExPgIddnM3KBM+HB0yDxM0HAgTcA0mA3MrEBM1NXUjcjUlNCEUNQs2NRdvMhwtBiYyPT0V'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[123]='EzARcA0+NCUNLXxzMj0jNjUPC28LPi0QNyUBEDJzbzUrEDV9DRclKzAXDCUxD3woCiUqEhwAMzwxFwErdi4+EjYPcR01BgVvHCwNfBMsDzwKFg0uCzUTIw9zci4Pcg0jNSV0NgotM3wPBwssEwosJw89DzYNF3IjHAdrEjAlASgJJWsSMQcpEBQ1PTcvMAEVHAAvMRMILzQcMDIWNiV8LDZ1cDwcNn0nHC0rcAE9NxcPEj1vdCUPcw4lKxAyICMVCwdwKBMKMBJ2PRQWFDYqFg0HLSsIBzQSEhcrNA0uNXUwFx0sNSwNdnYHAhYvfTYdMTYcFgoXHTIPNjUuFDZ3JgolBzYSJjU0L3EFNjItKh0BNiwhNj4wEhRxC3U2JSt8djQLNgslCXUBD281'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[124]='Nhc1EDJ1PXMLchFvDxI9Lg8HLSMBBwEVChAxMTI9ERcUPjIddB4LIxRyNRcxCClvEzwHFxMubxUBNSkXD3J2Mi8uA3w2PjIlMBJyMBQOBzwydREQNxYPEDUALCYUNnJ9dnEHays2fBcyLnwoCiAtPAsCEicLPXB1Mj4lKA0lMTQLcjUyAXEJcAklcDEyEhFwNBAsJg4gI2s3JQdvNXUBcTI+PTcBNXwtL30DbwsAfDUNJRNwDy4TIzYHAzwyKDEuMnMsFjU1ExULEj0yKwIMJTIWDzF1EDFwNhctIwkgNzcrNXwpKz0oHQhyBzA1Fws0AQh0FTZ9ExAvNXYyDXIvNg8HfHYPJj1wChdvNA8+EXB1FysyHAgjaxIlATIvBysyDjV8Mg8HcRYNPSV1'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[125]='MQccFnY1NRcvNnUWCA4NKw09CCUINXJrMS0NKDcgA3UND3I8AQ8xFysuPXAxADV9D3ILNxIlKzI1Nj1zdgdyLgECEyh2AG8sERdwKQEPEysTCCMQKyUrLQEHcjUxNnY0CAhwdjI1NzQxLXBxKwg1azIKHCY3EHMSMhItcC8tES43JTwSCi0FNjYXN3UcByoWEhcJNDUtLzE2FwUuDhcJczYHLykBPTEVHAh0LSstfRYOFz02LzA2JTZyNS0NLR0jLzUpKA8CKxU3ECt2NjV1JTUIMy0PD3YoCzQPchQ+JSx1JhEQNSZ0dTIlNXUyACNxCwADKDEOD3UPLnA0DRAeHTYsCCUOEHwXDQIMJjEKIzYxBg0oAXJwczAlLS0SFxF8FDYCFhEgN281PXAX'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[126]='DT4dNwoWBW8KEiNvFAA0HXYCMysLCi4lDw8tcXUmK2swFgomDiUrbzEXKSgNLQM1NXMDNDU8DzQLDwN8Lz5rJTU+KTwLMAEuNTQJLTU2MTwPJQ0uATABFRQAEXJ2ByM8CD4tfBIXBiE3IDc0NhIrN3UXMTQLIDU2KyYBKzEKAzETci83MTAjcTECE3AyPTF8NRApLhQ9MhI2cxMVDQ8rKwg+KSgTLjQWCDVvKws1diMNJQE1K3VwdhwtCyg2BzwSEh4LcBElAXY2JiolMQcFFTJyfSY1LSMxMBA1MAEPNBYyADN2NXM3awguMXENBgtvAQ8HNC8ocHIUdREQdnIrdQF1cHwJEC1xDz4RbxMuEXYBLQ0sDzU9IzE9D3A2dSMQCRA9MA0HLTAxIBEu'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[127]='L30rFzFzNhYPdSwdNyUcHQ11ESgKFg0XDTYDNTUtCRABKDYlMh4PLQt9ExAyDg81NTYxPDUmEzUOLnAjCRd8NhM2EWscLXJwdBcdIwsIEiUrEgImMRYLNwgAHXMNdQMsKz03KQE1cnAvPQc3MRc9MCs2cCkyFygWFHIHFRQIEXEONisxMgdxFismdDwBfQE0CxARNA0CKyMvADc0MXItbzIIcRJ2PAcjMgclFzYQESM0Ji00NXELchw2cit0JTUyDz4uJTE+M3wPBysXLz4jNRM2Ay0yDylxKwITNjUuMX0BciMpNn0SFgEtIxcxPRN8FC08JQtyMiURHhQmNCAxLCs9CiELLQ80LzYMEhImIxA1NTAhMiUjcAsIN3EOLA8jNyURNgsPD3ExLXwt'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[128]='CwhvEA4oM281ChFwD3IuFjEtKTEOFg98KxcxdS8IES0vKDMoMgc3KTFyLXMxLSlxNBItKHYKDCYPDzcpAXMvMTEKLXETNQs1NS1wbxwCIxUPNAk0MnM9Fw01DXMILXIVNRBwaw4tb3V2cnxzE3M0HSs9JXI1LQ0VDT0jcSs9cCwxFgc2KwBwLC8KMTUvNA03CAcFcw8OCiEPBzF1Nj41FwsoMCcyDzYWLzZ1HTUtCxcUcQkxHAIzIxMIAzQUNSwnAXIDcQFxBTQBNgM3KzYpLA01ASMvAnI3NyVwK3QlLXENLhN9AQotNA8gLTAcABE0D3IJKHY9cyYUdTNvdnMuEi8OChYINnRvNnENKRMtLTUrNTEtCwArMTESI3INLjUwKy0PMjZyAy01JTNw'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[129]='CyY1FxRyLS03FwYmCAojcws1bxc1KHESdnIRLg4ucBAIB3IuLwIrLHZzNzENPiN1MXM9awgtMCE1DzMVdgc9NgE1DxAyFwstNBcNIysmfCgNLR1xKygxFTIAHSt2cygnKx4HNQE1bzINPhF8CAhvbzUXAXILLXwoCH0rci8wI3MyB3EWdBByLjQlNzIILXIoCi0wEjYlHCYPEHwsLywLfDUtMTEUBy8rNi4RIxMCLiU1AHIrLy0RNAsPNTcBcgU2DyUDcTUmcjQrLXI8LyhwcjQScC0vNQsoDzV1IQsmcx12PAYnFDQFfDFyEy4IADEtAQ8tMBNzbxV0JXMWMTU3Ng80BicUKDQdNnNycRQtLxcJJSNxDwARLQ0oPXEIcgErLz4eJwEtLRcyAist'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[130]='NnUzLBQ1NykrFgswLz4vcDQQcyYyPTUsNyUJNy81fDwBdT08MQgwJxElBS4SEHEmdj0TNhQHBy4PcQ08Dy4TfAguHBYwFzUjdj4BKxM9JTUIcwFrLw8jchMwHCY1LQomMQIjPAsALXJ0FyMpNCABKTUQDBIvPh0tHAcpcy99ETYBAjQlAX0tNxQ8BXJ0EjwdDRdvfQsCcDcxCgwldi03cBEmNX0xB3IxDxc9FzUQPSM1JS92HAojFQ8PCzE3Ej0uNRYFIxEQNSsxPhNwMigjdhwOBSMRJjc3FC4oFjUtCW8TNgNydn0tfTE9cG8ULj0QAQoSJQs+HXUIciMoDzUGFnY+LS0UCHUndg8LLDAmcR0cLAt8MSwPbwosDzQvKHIxDSAsIXYAb3IyEDwh'
+do DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO or 32 end
+do _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM=QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO or 479 end
+for _=3,3 do end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[131]='EhYOJy8oKzYREj1wEwcrKXYPBXAJEBFvASwJKzUANTALJXZ8E3VwNTIHPS41ABM0CzUpawkQKyg1LTM8MSUPMDISEicPNjFwCAoDEAg9DTYxLQ4SMTADPHY0ByMOLQ91MCV8cQ8IMywPPi0xDjUDbzZyCy02cm8xMgIRLDQXJWsyPW8tFAItcg08BRAxLi00NT0TdQhxCzYRJgFyNS0tNRIQbxcPfTIlNxcHMjU8B3wREjUyKxI1cStzETc2PRFrNi0zMjIPMzEULjFxLyg0ITY9CiU0F3A1L3MTMA19A2sREDMpMTUDfBQHBTcwJiMoAQ8rbwkmcCkTdT03Ly0vNnYHchUPciMuKxI2HRIQPS0xDxMxDX0uFg4tcnASFwt9DwcjKQ81CCYUNTcp'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[132]='dnUtchQoNSMPLA02MQ8zdTEufGsrADAdCywJfHYHJSh0FygmDRcjEAosCCYPPXw3DRI3dg09AysUfRFzFH0cEi8OCzQOJhEyDS4xczItcCkcLm9yDS4xEDYXKS0rCAMQDyA1czE1CXwUBzM0FDUpMXYKLhIOEHxrdSUDNQ8uE3ELLjEuCDZ8LDE+KTI0JQEoMiZvLgEHDTIydTU3NRBwFQFzE3wUABEXMjwOHXY2bzUwEjU2NgcLFTUtN3YrNTMXNQcBKzUKEhY1IAMoDRdvaw91PiYwJSMQDXIDLQ01cGs1fRE8Ng8vcQEHbxU1NQV8FHUjKDI9HXMPDzExNiwLNA0ANTcIPTE8NxAdKCssB3EBcm9vAXN8KDEGFBYyJXA8Nn0rdTV9AxArJgwW'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[133]='NTQPNQkSPBY2Lm81Kw4HIy9yAxAcNW9xCz4rFxMHcSUTAhN9MigTMQ0uHh01dS0rMT4eJ3YIfR0PPW98NxARNA8oEzcJFzNyDw8BKRMIMTc1c28uEw9wLQE2ci4yci98AQIrcHYKA3x2LnIjK3J8EC81dhAvB3JvCA8tcBIQAxATPilvdnUrcCs1NXI1ACsVCHU3NBMKEzErKAMjHAojMjQSNBJ2DwkrKy0rLCt9Ky40JS1rE3UDFw0QKxUxDg12CxcyEgkXBSsUBxImKz0tIxQ8BTYINnJzEhdzJRMHD2sychEpEiYDMQkQKiUBKCstNxAuEgg+cjwPPRNvNT0FN3Y9EXYxDzE3Lz1wchMPDXMxCCkyERIyHRwuLSMyLS8QMiUtchM2dCgLECoS'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[134]='DhArcHYoMCUrFwUjDwcRLjYuNSMUPh0pEzYDMjE9C3ISJQVvChI3NA01B30PcytrCi0CFg01BRUrLQgdNnU1KBwIN3N2Lj4SMBc3LBQ9I3UxCBFzCA8FbzYuPSwBcgcVKyZ2KwsPMxd1JS01HCgMHTYsBXZ2LQNzLzAMJQgsCSsTBgUsCDU2HQstE3MLJTYmNihxJQgoPS0xKCtrdj0pNw11MTIIfQMwEy41dSs+E3w2LQM3AT4zcQ0oAzQ1PhF2KyADcQo1dyYBNi8tCiY0JwE9cDYPLnJvHAotEHYIcyUKJTN8NQATKw8lBy12NnZwAXN2cRM+ATEvLgE2dgcrawklAyMBBwAmMhcMJQg2fG8yEjMyDQgSEgFycnN1JSt2ChcPfCtzLS4rPjUX'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[135]='Lz0jfA4QcCgvPj1yMQcJfA0XLS0cNW81EhB8fAslETUNCCodLzwLLhQuI3IvLQMjESAcJTAmEy0cMDEuMQItNQ4tLyh0EnI3CChyKwo1fDIKJjM3LywLLhw2cBUNPikjCDwPdXUXcDcxEhE8AQg8IS8HPSgNJQdzLwcjKRM1djQOLi0wMBYFfA0HChZ2DwYhCHJ8FxQwAzUxfSsoEhA+FjI2cCgPfQExNTURKBwHASgvdTIdDXJ3Eg0uASMxPnBvAS0RLTIQfDIREnB2FAYFNBQ2cxYBPgIWCi41NQ1ydjx2PjM0NT0LPHY0CTEPBz02CD03FQ0QfRYPPS9rASgxLgs2djQLCCkuNhYHfTE2ERUUchMyDTU3LBM9Dy02JQU8CjUAHTQQDB01B3As'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[136]='DTUDFzFzASk2LilwNiwJMgs2axZ2chE8NhIRbxwuJTwLJnQxMXUxLQ1zEzYPAHMmNXIGHQ0PcC0xB28rDxcpMHYoPXUvCD02AQcFMisAPCc2FzcXNTV2FwsIKXF2Dgt9K3MBKzEtETQTNjUtLzYpc3QmAzExADAdCD1ydXQlLSgrAj1vDQ90NxEmayYUKDAWMXIPLXQXKzI2NRMtEw8BchwCciwwFwwlMXEHNzEQNiUxDzNzCHUjLjYXI3YTPXwQNg8qEnY2LzE2JjF1CzQPNwEHACUvAnByKyAxFy8HHXF2ACUyATUyFnZyAXAIB3wXNRcTPDIHMXUNPSM3ERAvNhwODXEKFz1wMBdvLg80CzUJEAE1DiwHFTI1djAPF3wxMRAtNjIAPW8vBwM8'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[137]='NiV0FwgIMygyLhNwdCUxawsHHS4vPQonMi4jFxwwAiUBfRErMQcLEBN9LTQxAClvNiUxMjYHDiUxPi4SDz0tcxM8DxcrAjE1MhcGJRwuPiUwJgMtMgAxNDYQATU1Fg82NgYAHREXNSMrLh4ddj4rdQomMTANDgc1NQ8sJysAAiY0Fgd1DQgDEDY0Cy41ACk1HAIxLBIgNRAINik1KwAtfCs9BW8TPW8sAT0jcBIXI3wrcgMrFC4dLDYALzwOLisXCxcdKw1yBSkPAjVwCi4tIw8AfC41PQdrKz08IRQtMxcxEis8CAA9NDUldmsSECoSCiUNPDIScn0PLQ9rCH0RKystHRcycyoSFC5wcTIQEysICDdzCyV0KQ0mEXUKJhFvCAATLSstCTQKEAF2'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[138]='NSAyFjImN3EILS08NQYNfDEHcDwLEiMoNBcFFwEPA3wyB281FAADMTEmEXAxNAgmdgAlbzJyAzYrFg0xFHUBMgomKzcvCAM3K3I9Fw8OCSsNLQUVKyUBKzI2MXN1IDFvDS0jcgklB28OLi98NQcJFzYlCygxNjAdHA9yNg8sC3MLcgs1LwADawg9cGsyCjVyDwoDLS9ydhULMBMxMQYHMTQQNzZ2NSsXNgYLfCs1B2s2JXJyAQA1cAs0By4PcxMVdj4rMnQXHBIJJSM0NTQGJSswA30rNnAVdBdyLjYQPTA2cj18DjQHNQ8QEyh0IDUrDwA9NzZ1PTErBz1xdSZyKHYIMzYycgEXdRBwFzIlLhI2IDctCHIJNQE+HTYULRN1ChdwLBRyHB0PLQly'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[139]='MnJrHTJyK2sKLS0VDygBIzEPdDY2ACtrMnJyNA9zEysxNTMuDiZ0Kw0mIxc2LhEjdCYRdQgwKxAPEnJrNRcREBR9ETUvAC8VFDUFMhQIPRUxJjVvdnUrcjUtD3wRJjcyASg3ci9zLBIwFw0Qdi0FKRw1DxcxCC8odgAdNzYoEhY2fSsVNgIzcw8lA3wvCD01KxcjKy8tcCgxEAEsDyg9fRM+cC51ICwndjY1LTFzdCsvPQtvdgcTMTEXIyM1BzFwNQ8xcjEuATcNKC0tAQcDNzY2IywNBgc2FC0zfC9zLXIyEG9wDygxcxwGBXF0HgcyEz49Lg0WBXUTNi1xCh4NKQE2AhIBBwYhCjYtMS8tHS0ULRM1Dz0pMA0+JSsNAC02AQh8PCslMSMyFwUo'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[140]='Dz0HMisPcnMLFyMsNQIREAEtCTwJEDMpLwcvKAg9NXJ2cjwdMQABdQs0BW81D3BrDQgRcw1xB302CDd8KzA2Fg0IMzV2cQc2NyY3MS89CiYUcQolCAACFg8PPW8Pci1vDS48JzYPK3EONTUxNTYTKAkgMhI2Fw02Mi4TNw0QMWs2NRN9Kz0TNxwHCRcxPhE8DwdxJgg9LBZ2cgswMRArdjIlMTA1NTUwKw8FFwgtNy0xLiodNT0jMXY9BzIUci88EhA1LhEWBXELMC0oDTUsJQEOBywBLhE1NR4JKQ0HERAKNXAjMj0MJQh9AywPcz11CjU3NzEKLTwxFytvL3IrLggHfGsUDw1zNQ8DNTYHD3ATc3xxCxcdPDI0Dic2dTUoMQAjdgE2ATF1JjV8'
+repeat until true
+for _=3,4 do end
+for _=5,5 do end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[141]='DRJwFQ88DS4xACkwCiUtchwuMTYPDgUrCyYBfDESLiUNNS81L3J8azZxCSwNF3AjNQ8zFysQJRU1Hg9vMQ80IS81CTY0FygdNjUxcAs9NS0BcQ12AS00Jw0mMygrNQUoDS0lLAstLSswEhEVCw8PaxQAKhYULQs3NgoDNQsAbzArNjFxCRABFRN1NxUyF3w0FAg3NBQ+KBYKLSU3CC0PLCsoNS4PEB12NTZ8KwotAXwBD3B8NjVwLg1yC3UIPR01MQd8NAgtLzENJRFxKwh0Nw8IcxYBDzEsCjULfA02cjIKNnQrAQ8IHRwtKSsTcQ8VHA4KJwstLxA2PgNxAXJvNTEHB3MLJjVzMBAvMjUAMRA2BzQSMX03MQouK2sLKHIwLzY3cjUCLW8Iciko'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[142]='NXJvNA0WCTYNJQgmDhcLMRQtNzw3JXAxMnUsJgo2cnUvLTUQMgAzMXY+E3ATNnQ0CHI1cjclcHN2ACMVDz03NQE1KysyCHBrHAIRKA82LS41PTUQKygTMg0tEh0rPQ91C3UxFSs9CicIBgkQEy0vNhQ2ETUICC8XDiUpKA0gETQrLSM0CDUHKA8lNTAxAC91CiwJcQsPdjcNF3A8CiUBcwgAHRUyNnYjNQ8pcXQXMysrNitrMggpFTI9Ay00ECUrCHIHLSsPDh0xAHwQATZ2fQ8ODXMUByk2KyYjFzUgKzQBLQMQMj09Ngg+KTQ2Fw8yEh4NIxwIbysyc29vMgc8JzIAARU1JQwSDRAlcSsXAiUNFy4WLw8rMgkgNTETNi8VMjAjfDcXCzYPNj0w'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[143]='MgcDcnQXC3UvdXBzKzwLIzIIERcINi11L3IxFwotA3AREjIldg4Jdi8tEzEIDyM1EzUjcjIgIzwrPis0MgA1cysPcn0rdRMwDSARFwsmNS0LBzcuDjV2NQ0GBzwNKDd8DiYwHS8AE3UIDyMrMiU9dRMwKy0UdRMsDQYPcw8KNCZ2c3wyE3U3Li9yEzAyCHQyMnINcXZ9AzF1F28oDzU9LgsIKTABPQIWdnEFKRQ9M2t2NRIlEiYzFTU9BhINdQFxdgArNhQHNywONSMoLz0TNjYXKRUyCHItCyV0aysAESwcB3J9EiY3NxESETQvBwsjdnJ8cggAL2sIc3IwERdwPBQocm8Icj0yNRc1cg4mASgLJhwWNT0jIwslNWt2PAkpDwgTfAh9IykLdRM8'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[144]='NhJyKAEIcRI1EnIyEhA3KDUtcRYrACM0CxIrNzAQLyt2chIlCAJyPDIWBiUwFwUrDiwJLgoXBSgPPQMXDwcCJzZxDXMyCgNzMQ89NQEwNRATNhMjCi0CJTIGC3I0FgsrFHUwFjYPAhYOLS02DzARFxEQK2t2CjUrNi4tFwsXLyx0JSoSHDUpMDIuPSsrPnBwCz5vMBQ9NXI1EBFyNBAdNw8oATI2Dyk0ESYqEhQ1KxcPcjdyNjUOJzYmcCgPPQ0QDxARMi9zEyw1LQlwEwg1fTItNWsILAcVEwh8dS8ODzR2Pjd1CzYtLTI9MzIvDgtrFHINFQoucxY2LhEXKwAdcg4tKRV2Dg18K3IFcjQXby4vdS1xMhcDFzE0ChYNfSsjKzQLazUPNxcLJQEo'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[145]='DQcvPHYKK3wUcgEQLw4FcSstCB0INnQuCDURcjIlCzIPPjU2DwIzFwE+MXEULSV9DQI1FxM8CzIUfTQdCSUTMBImASsPLTQlEiUFMTUPCCUNFxEyNQcdFTEuNCcyDgcxLwIuFjUKIzw1D3ZvNnMyJgoQAXMNKDErAQh8NTQgIxUNJTM0CAoBNg8KMXAxPXI0CxcLLisgLCYUNgE1CAIBby89MW8yJgMxDQcvMQotPTILPT1wKyU9N3YODxANPgMjESYjMiseBTQNPi1yNggtIw01fSY1NjMjKzQOEjEXC2t1EiMxEiUREAsQfG8IPRM3CAcxLDIIIyw2JhEudjV1JhIeD3ArcwMuHAhwMS82fScIPQoddnMxLhEScjYyNQ9zMnINNnYtPTENNQon'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[146]='Ky01cisHExA1LQl8di49fDFyAzIyNQ8QDQISJRQ1CXMLEGsmEz0IHQ08BSw1F30lCigDFzUmPTd2Lj01DS0zEA8AcDQrLAk8DTVyLBMALX12Dg02MRcvNzEoNTE2BzV9MgABNTUQASk1CDd8EhApcTI2MSMONnQpNQcJFw8sBWsUPAcyDjZyNwsGBTQBchEuEw4PNjYtC30vPTEsNj5vfHUWC3A1JTwlNXI9FzE1DiEICCMpMSAwJhMKLB0LPnMWHAh0MTI9BysrKCMpNSUFKDUPKS4LFy1wKxcKFg0lK3ExLQs1MigxLDUIN28LfRMtDiUrcAg9KXwPPhF1dnItfDQXfCMyKDVrESUjMTEmdDQNNjQlK3MvNBMKLTY2Ljc3NXMpFQ8HKh0PD3Yx'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[147]='Ey4TcQsALzQBAC0tMQArKRQAPTYvBg4SNS4dMjcgMRcPJTwSDRAjIw0CAS0rfTc3DT58FTZyNXUUNnY2E3UDaw4SLW8ILTcuMhAtN3QQEy0rFwU3Cigrbw99MX0yPjMQFD0JcTUGBTYPcm98CAA1MhwKI3IvPR0jNiwPcjEODS4wFwYWDTZxJ3QQJTATPTcxDhABbzIPLTIxAi1vDjYRPDYlMTQ0EnMlCz0DLQ8IEys1JRM2LwIBKAo2fDEPKDQWLy1wFTFyC2srLTMsCxIzfDUeB3wBCD4lKyg3LBIgMB0rPTIlKwg1EDQlAiZ0JQMuAS01cQg+HTwBMC0XEzUBLCt9KzwvNSspCh4IEgslNzYRF3x1FAceHRwPC3MxDy00ERcBbzclNB0xHgcy'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[148]='DTUPNQ4gI3Z2cQ8yNS58KDZyBRUyEAM1DRATFw8XPTI2ADISMhctaxQ1MSx1FzM1FA81MTJ1Ph0KEhEyAQdyNzAmKXwUAjE8HAg3Lg8XAiEIACghASgjKzYHPTcKNSMsDwABI3QQfHEyPj00NjARcAsXfHILJSglDy4DPA0lEhZ2PnxvDi0oHQomKTUUci0tNCV0LTYSEhYxNTM2CHN0MggPBzAILi8uMnIxcQgwLS4NLhE3DhYIJRMwMTEUAnAXDRArLTYAEy41Bw8odjAjEC8+I3IJFxFrDi0DKDYPKxcxCDUtDXEJKQ1yMzUTADIdEy0LNjUAJTB0FwAdDjVvfTY0CzZ1JRErMnIDczU0BzAxFyk1DxYHFw1yNyt0FwlrCHJ3EgklDTQxCgEy'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[149]='HC43PC9yD3EyD30WLzULcggCci0rBwEjMjA3ayslD302JgIlNTQLLA1zdHEyFzUoCDVwFQsoAic1FysoFAoxfBQ9NTArJTNvMg90dXYAKS0rBgsXdCUAJg1zDBIxCC0sEiZ1Jwg2cDUJIAF8CD0pPDEmMTQIAB18HA8yFisHfDEPNjUrCi5yFQ0mA3IKFysrMS0TPA4tcDIyJQdwDS0sJTUKLBYrNSsxKwcCEgstEyMvLgN8D3ELFTV1NykvLW8uDR4HLjI1KTcBPAUxEzAsJwslcnwPIDUXdBAqHQ80CxcydQMrCig9FTclKBYxDzAndCV2FTUAJSsOJREuLwcTcBQwNW8rFwFzNhctLA0XfGt2czQdD3IJNDEuLRcrBg1yDXIFF3YAcx0BLik2'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[150]='dn02HQgCNBYLLm9zAS58LRQ+PX01Ai1xLygtFw0XCCY3EAFrMiARLnYuPTwBcg91NnMxMgo1PWs3EgE1FAIuEhwPdnUPJQ4nKw9vMTISMRcwEDcjDT40FnZyBXANEhEXNBdzJQgsCzAycnZvMQARMS8PE3MOJjQdMRdwKDEmPCExJT00ASwGHQEPEzcIcnMlNTYjEBEmAXIOJikoKyYTMC99LTIUNSsrMggrEAg2LRUTPnIwNQ8BKy8sDSgNIC0sDR4UJgsQA3AxNQl8Mj4RNg0uJWsUCAMQDjU1cRQOCRV0JW8udnIDI3Y+NzIxLRE0dnMDMBQ8DzQrNjU2dg81LjAmNzErFysxCABwczFxDywvLQ9zdjUDEHUWAB0LJQMoCiV8bxQCKzccLX0S'
+repeat until true
+repeat until true
+do local DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=329 end
+while false do break end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[151]='ESACJjIGD3E3JQlxDRd8MSsGCBJ1ECVzdBctFwF1cjcNHg0jMQoBNhRxBSkPJm8sDiAjNysPBXMrcnZrLzV0bxQsDzA1Ni08LzV2FwE1FCU2NS01Nj4zNw4wETcKFzFrCwcJczUIPCUUByMtMBIDdQgtcBB2fQFyFHIDdTUPDxA2LgF1CRYOJislLCcrDwkjChA3PAhyfDwBLA9xKz0oHRQ1PCEJF3I0CHMvdhMAETIxFygdNBdvMQ0mL3M1cylzDjA2Eg0PDXYOEC9vNj4jNDEwExUNKDcxCD0DFRNyL3M1DxwmCD0pPBQGDxcvNT0oMh4JNBQtEXwrJRwSCCwPNQ4mESkPDwU1C3MjcA89D28xCAMQESURdTIwE3IwJjMuLzwJfDYsBiEUNXMm'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[152]='MCY1cjcmKXAyEj0wCAcpMjY+Ny4INnZ9DR4NLhwsACYBCjE2Ci0lMhNyCTwNczUrCRJybzU+PX0xNW88CjYzcTJzPTIxLREtCjYvKzUmEXUcKANwMQcLcxImETI1KDNvNQ83KDIXMhINMDEQMiwLc3YIAXExfTUwNigMEhRzbzcyCG9xDhApLHYINSsLKHIwNi0UEg0SNCcLPis8DiVyIwgKIygcAC9vCRA+HQ4mayYTcj1rFAczMhwKMh0wJigWEhByLjUQE3wLHgoWCAgoEjEuLXI2EiNvMXMxNTIuMiV0Ei11Dw89NwEtPWsPPStxLz5vNREQHRA2NAsoEhcIHQt1AhZ2NXAsMRAqFhQ1CXwREDUwDSYTNDUXNTcyczdyLzUPNzUQAzB0Fytx'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[153]='MT4vLnZyEXw2dTNxHC43KQgtAiENNTQndg8KJxQPcyYycgkudCYSJhNyPX0NLgwWCyUzNHZ1cjEwEB0oNi0NbzUHBzAKJQ9xMi4dKHQSLRUrDyN2ASgSJQo2MhIPchN9djADMg4QJRAJF3IXCAorazY+cHN1JXI8NBIRbw42fGsLJigndnUBcAhxCzA3JQwdLyg1cTAQMTIBBzdrNXIcJQ01dRYINm9vDT0vMRNzAygUAnEWNTY9dTZxBSscCClxMQgBKTAeCzIREDM1AS0lNg1zdiwUNi0sERcDFTEmcHAONWsmCwcJN3YCIy4xc3Yjdj0rLA0uJXArdSsxDyUAJXQXATYxADQdESUTKzESPB12PQc0CDUJLjUgAXAyLQU8NSZ8cw4wK3IxdSNw'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[154]='KyUFLjQXAiF2cil9MgAjNAkXCS4OLSVxESADEDIKIy4Bci9rCxITFQkSLTU1NXQtNj09MhwuAS0UNjYdMnNyaysoMTE2fSsXCyYpFxMucSEIBwgWCz4TLAsXLS02CBFrNyZ2Iys1BWsID3YVdg8pKA0QEW82fQImEwowJw81cigxIDISChIxIwgHMBYrBy91NTQNLBQKATE1DyNyATAtNgolKSwBLiMXHDQPbwklKSs2PnJxEiULNgguKTwNPnB8NT0JcysHABYrLQk2AXM3Kys9MTcUBwtvCw4NKTYHLXEKNSsoMXI1MC8HMSsUPgM1CyYsJysuE3UKNQMjKyg3dgsXLhY2dXBzHCg9MgomMzE2Bg18Kw8xNgswAXEKNhIhCSUDMRQHLxUNLjwh'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[155]='Mh4NfBEmKSMOJQVrFAhycBIQASsPD3w8MRI1LXYHBicTDwYlKyV8fDYGBS0BKBEyNQhwKTAXNCYxDg0ydSUTIw9yNXU1EhErDQcRKw8wLRcxEnJ9FHN2dTU1LzwICDcXDwBvawEPPXExEHIxNxcmJQEHKiYOFzMpMRJyN3YKK3UvDwFvCxAtEA0lMS4LNQlyD3MtfQkmdjA1LjMVDigxfStzAicBChNvDiULFzEuMTETPh11Cy0jczF1NCE2CAMoMTUBNAseBzc1JW8tNgArLg8mKzwcKC4SdCYtKzESNXArCANxMiUjKTY1NCEcBzMpLw4FMTclLygyMCs0Lw8IJTU1MXMLDg8jDz1vLhwPKywxPTMQDywAFhwILSsBdStxDyV8Nw0XCCYxNAoS'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[156]='MB4FEAkSEiYNPAVrFDY3FTUINzcrPh0sLzZrFg8GFB12KDAWdjQFMjYlDRd1FzEVLwgxazF9AywyJRIlK3U8Ji91EhIxJQ9wNSU3dg01PBY2NiwmCSUJKwEAL3ITMAIdDi4dNTIPCzUxJT0uMgcNNTEQLzIrCDISDRAxMjEGDzEBCHYVLzVvFQEPDzc0EDNyHC0KJQ9ycSYPBxQmNjZvLQ8uAS0rNjUuAT0PMS8KDCYUNQE3dBcJaysAEy4PdXEWC3J2cDUAcDQIPXxyKy4TMi8PcBcJFxImFAdyMAs1DCY2BhQSdRdyLAsldHAyLXwQD3I1KzJyA30SEHJxKyULEAstcCsSJi1wNi0ddQslEygKLi0QAXJ0fAoSES0REjcXNyABcQs9AyN1JS8X'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[157]='MnJ8djVyAyg2Fwk3MXEGEjYwKyw2c3ZwNSYxMggGDicONAk2ERApNDImESwNHg8QMCYDfC91AXwvNA08MT0xEBwtFBI2EBM8DjYxEAECNXILD3RvMCUqFghyHCYvMC11CxJwczEQNSsLPiwmNj4TLTcQLRcxchNzERdvMTAXMWsRHgUQERcdcTE2PSsPPT02AQ8vNgs1C30BPA1vdn0jczIPC312CG8VDzwGIREXbzwvczV1Nh4JPAssCzULAiwnDi0NLjU1K3IyNW83LwgDPDE2MzQNLnESMRc3cCsADCUSEDMrAQcBEA4uATcBCH0hCzQGFgkmI3McLiwnMg8JcjY9cHMcKC0tMi0jcHY1bzR2CjV9AT0xbw4mAzcPACUQDwoBKzJyAiUyFyUx'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[158]='DQ4NNzEQKzExABMQHC0DfRRxACY1JnIVATUtdQ0AcDQLcm8rNQ81cisQMzULdQM3EwAjcBwPE3UIPQ0oAXMzKRIgNCETCHMlEzUBMgF9ETwBNXB2Mg8jbzUSMS4BcwE1Nj4REAs0BTZ1EAN1DigDcBwPBXUNFx4hDy0rLDEOCxAUAi11Nn0rIzE1EicRJXZrCw8JLgkQHRUycnwsMRYFNBQtNCY1LXI8FA88EjU2djIOLQt8Dw4FLDUoLXUINW80Dw91IQ8AfBUTDgolNXILNXYAIyh1Fx0yCw8pcRIQMxU2LAlyDRYJNnUXB3ArLXJzNhceJQ8gI3ITLAtwNTUDPBQ+NXI0IANzLw83KDUgNW8OJSksMQARMTIsB3IPPRMtDi0HfDI1NhISJgN9'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[159]='dR4AJRwOC28ONnw8dCYtcTY2MTQxPQ0rK3UjFwE+cyUTLh0rNX0RIwE2bysOLignKyUNKwEPMRUyciksNxAsJw8+E2s1PQkrAXUzbytxC3UcMAFxCiUAEnY+Iy0LJi8XMShwEA0lbyN2LgwSMj41axwCMTAOEhE8NjY3I3Y9NXUrLQdyCwgpNA0lFBIOKD1zLzYzKzUQExcNc3cWMTUBcQoSMSMKLTE8Ci09IxN9IygILgM3DyVvLRQKMXALLm88AShwKAgIcjEKNj0rNSAsFgEtb3APcnUmKyg9LDUtL3MPNTc1dgclIwg+ASMcLW8jDR4OJg8lERcBcnA1NxYHcg99Ey4LcwMsKzUvKBMAEywIPigSNQ8DKxNzNTIyPnxvMQ8BazQWDTwRJnYr'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[160]='Ci0TcQ9yb3ARECMtDXIzcQEAcm8PAB4hdi5xJg8ALykIPTM8djAtdQ0ldi02EG88NiYzKRRydjF2Pi9yDQ9vLhRyAXMNDwk0dSYtczEKNS0rKAMoL3MjbzYXDxB2Li9wDwczFQsSMTAJJQd8MiY9NTU8DywBKBInCwgra3YGDy4TMDYlNgoDcwsQAhYcLQISCyURNTF9EXArJgFvNiYxfHUlchUwEjc1MQIDchQOChYSHgk2MCZychMtLWsBLAkoNxcxIzYmA3INAC4WLzABNTJzATQyJQ8rESV8cQowMCYLIAIhKxc1LAhxCysOLjVyEhIrNS9yIykxPQVvLwhyMTcmPSM1F3AuCA8TbwsQMyMLICs0L3MBFxQoK3Y2KCs2dn0jKA0PdhU1IBEu'
+do oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=21 end
+if QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO then DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=93 end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[161]='L3IyEhQoK3UIBg1yNBBwcStyERARJQc3NQg0IRMKAygILXJvNxJyNQ4uJXwTNQgmCyU0FgklBh0UD3IsCD4RIwEHEXE2NjcxDSwHFxEXPS0IcnIxChIxMBM+Kyg0Jjc0NiUTLBQ9KhIUcQcxNTUSEjVyETQBNjF9EwATfQstfHYBKCNvDzUMFnYPBiYKJXY1C3MDFzEPEyMNcQdyMjU1byslcisNLREQMS4TEAFyLXwyBzVvNCY1Nw8ODWsrByk8NQdwIys1KyMTLSUxNBcNMjZ1NCcTLiNyCy5wLjEoMRABBzcQHAhyNjI1HCYLDz4lC3UxcQs1PBIycgdvDhA3azY8C3ILECN1NhIsJjE1cHYOJT11MjQPfRw0By01PQk1NTwJNDYQNy0PFwUu'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[162]='CiUFNjY9cjI1F3B8DzUoIQ8oMXJ2Dw91ChcTNzE+b3M1DwE8Cz5wLDZ1MykUPnw8KzASJQ4SNS4yPQYlMjYxFQ9xD30TNREoNTA2EjEXLzw0EhE2di5vfTE9LTUrPQsrLzUpfQ8ldDIwJW8VDw8TczI9JX02AjEyDwcPFTEwKywJIDUoNRYPcgsSLXILDgkxMXJrEhIQaxIyLhEuNyU0HTYsFB0xNhMsCx4PKCslKCcyfSM1LzYDFQ0ALTAcB3AQKzArNTYlMysUNhInEy1yazcQE3UBPTV8dCArdjQmLTUxIDcVdBArfCsCMhY1cjNrdCUxfDY1fCs2AHwuMi5yMi99LTINBw0VdgITNQ8HA281LnIrDS0HLDY+LW8yJQtrMSYCEjJzPiYRFwgS'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[163]='NT4pfRIXCXMrcjdwDwBvFxMoNCcrMCNxKy5xJRQ+IzE1EgMtCjQJKxISNSwyAColdgIsHRwsCRASJiMoDiwLMjYWC3MKJT4Wdj59JwsIKTc3FzwnDygjfCsWBRd2cxwdKywNKCs2Nyt0JQsxMXIrbzIuMiU1chMxDRcjKDEXDxA2LiglK3ILdRElcDUNAAE1dBI3dQgPM3IPJW9zCxA9NhIXPX01czwldSUBcys+NTQ3JnwsNxATfHY1djYLPSk2Mj0KJwo1ASkUNQ81NyARdgg0BzQrLT03CiY3NA0uKS0ULQMxNi0lKHUSE2s3Hg0xMQ9wMnQlcih2fTEjKxcNaxMuNzY1LSgnHA8FKTIocR0rMAISMj5vFS8APRcUAjcxKz0UJjU+KygKICM3'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[164]='NT4vcTUmfC4PD3RyKxAMEjcmNzc3EDcXNhcLNDE9MCEUcjMVNnVwMg0WDxUULT4mMiZvfS81NiYSFgcrMi5ycBwtNzQLNnJrMT4rKDFzLX0SJRNxKxAmFg4oM3V1Ei0oAS0zbzFxDzwrNXUmDwhwdQh1I3YLPQswdgg2JTVzIyMUPQ1yFAgvLghzMzYUNSsuCh4PFzY9CysUdQMoNig9LTE+ETQTDwMrEy4vFQ8XcC4vPA8VCD0JPAslIy00Fzc0NgIDNTUGBRcUAC80DSYqJSsGBSw1Pj4dKy0dFwosBXMxByV8Ng83FTU1LCUrNhFzMXJyPDIsCXIrCC8tNCYBNzImN3MRJSkVMghvLQgwLWscLT1wNjQJcw0tEzQxAClzLy0OHTE8BSgOEnJ1'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[165]='CHUzNjY+b3N1JXI0L3MvfC91LTwPJi0yMQI0EjQXHiETNhF2MgoBKAs9EXwcAnI3FAATPCsINzUIPj11LwYNNDZ1EW8PFytyCA4Naw11ETIyPil1Cxc9LTEPKzEIcnY8MRJzEhQCNiUwJXx1FHItFxwPESk1EHMmEhATMTU0CRUyBwgWNRctNTY9CSM1LhEXdSAtPBwtEywvdTdyD3MxECsPDywTMCNwMXUBFRImMxc3Fws1HDUoHTI1M3IBAHAtMXIjNSsAHRU1JiN8FAgtcg4uJTQUPiVxCyUvbzQlfSYUcgtvASwPPDEXKTAyBggmNi0dKw4lcmsINjFyDyYxcA81KTwUNSN8Nhc1cys1fDcULTVvDzUFNg0XIzEyJSwhE3MTfCs9cSYxMC0o'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[166]='CxcpfTAmKXw2IAEtK30tFTYlCTE0JS8uMXIFNQsIAiUTLS9rFHNwFQgwATwLLSNxNgcBFXQmbxAyFw98Ly4zbw8uMBILJXJxLz02FjIwDBIyAjcxFDYsJhElCyMrdS0uDz0NFTZ9KxcIcyN2MSZ2Nwo2cCsTNnxyCSZxJTclL3wPAG8tdjwNcxM9cCg1NQInCRITNQ8wLiY2ADNvdSUoJTE2E3ULJhN9AXIHfAEKAiExJXIyHC4tIzYlIxANPQFrdSY3PDYXLxcIACN1KyUjPC8wNTIxFwVyDi4tNC89HXIvNnAQLzUqFhMuMX12LQ11NQIrFzQQHXMUCi0uCAcLFzcmKxUyNSktDRI3Ng8ODzATNi0sDygjMjAXCyN2NQ0QCz0jdQFyESw1NAUo'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[167]='Ky0dEHZzPTINADcXC303KTYIcRIBChwlDSU9cTYHMzYvPgFxMiUtdS8oI3A2JXI2KyA3awhyIzI1PW9xDxItcjU2Kys2BgkoMXENKzE1NRcPNXwyDQcjcTYgNBILczM2DS0pa3ZzEzEPJi00EzwLcg4wAXUyNnwyDiYjcw89HTwrAjdvERIzEDY2dxIPCi4lChB9EgoQL3ILLhFvKwI3czUtBiE3FyUwEwA1EA0IA3wLczdyNxAsJjImfHEJJigmCjUzLisKAzwIcwE0DTUvLjYoN3Mvcyt1DiAsEhMCAXwvCC1wE3ILNBQ1dhUJEAMQFDYoJg8HA3IrFwUVCSYjMg81dR0ICHEWCy0zdgkQES4PFygWNiYvdi8wAXx2By81MCY1NDEsDXx2NjYd'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[168]='MQdvMgosCBYPJjUVNxABKXY+Ah03FzU2CjULLRQtLS0RFyVwDwc0JjYIcisLACkwDXIRbzFzMRU3FxNyNxclNTI2cCN2BwUsDQIjNzIPPTUSECs2DSg8JTUPKB0BNi19HDUAJQ9ydSELc3IsC3UtbzUOBzIvPAcrE30xNDclIzYxBw8sdgATdQo0DyMIdXB1Nj4xPDY2NRcrJnZ1ERIMEhNyAS0PADdvKz5vNA8HMiYvPis3DRcjKy8HDRcLNXRrK3Uxcy82LSsxFy81CDUPcDcldnIPLik3ATURfHYHN3U1IBN8NiYyJXUlAB0TNgMrEy0lfA9zAW8UPmslDxdzJRQINzwLKBEtCi0TPDVzNW8xPgIWNiYvLisoLWsSEnMlHA88JTZyDTY3Hgd1'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[169]='Ci4BdTVzb28LLAl8Cy0wFhQoPS4LPgNvCDUPFTQldHYIcglrCHMpfQgOBzAcLQUoCi0tcnQSIygLFg4lMS0LKw4WBzAUdTUyMTV2PBEXCTU2JjFyNx4HMHQmLBIKLnx8EiUHMi80C30yJSMsdnMTcRwwAiY2CgwdDwAwJisAL3E1D3wVMjAxMis1DzQNJjM8DRAzdhIQIzYLcgU8CHI3dRQPEy0KNgNxAS0lMjE+KywyFxEyLz4MJjEPI28LEjM3MQ4NcC81chAwEHwXEwArFTQlNTQKNQMtCRcJdi8CIzYRJXMdMBcDfTY9NywBdRwWDwcrKRw0CTw3ECU8NQhvcTIKLCUvAnA8FDZvKzE1L3E1cgl1CAgrNDV9NygONisxKwcdLQ02KRcILQE0'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[170]='NCZwPDEQLTIyEnIQMT01FxMIcnIBCDc1CC4jcjZzPTQvdT02NhIrNDEPPSw2EhwdAQoTEAo1NiU1LQYdAS0lbxQAKykOLA0yLwclcDUWBTwBAhM2Dh4HEAE2fHE3JXESNRcFdTUlCXALEDwhNS41LSsScjUcAjdxD30rKTUgNiYUKDcVDxJyPDZzbzcKNWsSNhJwNDF1MTcyJTEtNnMsFhQsB2sIAjM0NxAjKQFzPTwwEAE1NjQLMSsPChI2JikyCy4vLi8AMBIrDzFwCC4dfC81FCUvdTEuCCgzFzIXDzYRFgs1NjUOEjUQNCYxFwV1DyURNwg1BXw1EC0sChAzcQo2MS4PNRMQNS4DMQgtAy4UBgoSNhATdS82LiYvNQsXLzARKBwII3Z1JQko'
+do local _={69,23}end
+if DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv then DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=81 end
+pcall(function()end)
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[171]='Kz4CEhN9N28LPgMtDyUGJRQAAzUPDggmNX03cysPCzF2NBQdDhABdQ0eBzYvDg02AS4SHRwAAXUNAhFvFA8BPAhzMXJ2ABFwLz4CIRwoIzw1dRMoEiY8IQECEXB0Jj0wNT0zLBNzKzcBBgc1CAo0HRIXMy0BBglzCw4Pcw82NzcTcgEtNB4JLBNxDTwTPSU2CHIvMTYXCSgvLhInDSADdTcXNyt0IDEoAQ81bw8gMSMxcgcxMBABNnUmPTwIMCt1EhAxfTIoIywvNiwnL30CJzUtcC0LKHJ1NjwHNg42ATwBcnQsMgAxFw8HCiU2JStzLwc1MBImIzITPj18MhdyKDIQNyg2LSsrNjULfCt1AzQJJTE2dnN8Nw42MS10Ji8udRJyKBM2PTITKDM8'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[172]='KwgsJXUQcBU1chN9NxcrMQE+NXM2F3xzNgATNTI9cjUvNTMxFHIBKzICLhZ1EnItDhcBKzEIN3IOKDcpD3I0Eg4wNywrciMjAXMpcnZ9NxUTCDMpNSYRaxQAAW8NJgE3E3M1aw0KA3IPFzAlEzYtNSsPfDYrFz4ldnIjLQ41PS0yFz0oCz0lFzYwETwrPT1xK3MvNXYAMzU2Dg9vERA0JgEANzEcByMyMT0lMg80CzcrDw0pDSV0EDYWCTEyHg0rMgd8NyswIxcBcisjD3IxLjVzNTA2cgVwCxIxEDI1KRc1EH0dEw9vFTclNS0TDwEQL3IJIzYOD3wrEhMjE30RbzIPCicvcnYQAQ4FECsKETYwFwE2AT43EDIQcjwLHgswDhAvNisAI3V2PTM0'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[173]='dnM9NSt1PTAUKAExDw4JKQg9CW8TPRMuEzUHcwooPTcrBy1wdnNvcAsPDS0LFgktDyY1aysHDTQ2ciMpdRITLQtzdnMNNjExDQYOHQEINyt2Bz1wK3MCJxNycDUPc3A1LwA3FwsHLy12PA4WEhItNwkeDRALLRE1HAgvNgtzNykxLSMVCigDbzAgAzINPi8yMS0lbwogAzEKNXQxKw81cgomLhYLNT0Qdig3MTUAIykPIDEXNhcrKwEPCSsTLA88Cy4tLjF9EXUONTE2EwYHNisSA3w3JXRydjZrEjUlE3ELLgF1DT0xFwooPXU0JSt1KwowJisWD30UcjcjdjYDcg9yDRULfQN1NggSJTYQKSsvMCM8DzUFcC8+fHEPNQkxCzYoFjY1fHw1NQU8'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[174]='ASg3NCsCMSsBc3IjKz0RdgE2ASwxCjEsDz18cXZyLX0rLXJ1Cz0rNjEIMRUNFgdzC3UBFwECNh0PdQMyEzU8JRQ9cmsNAhInMX0CIQ4tbzcLCAE3NSV2dSsAHBIvLAk8MXEHFS8CN3IxNSksATYBdXY9Iys1PiMudgcBcS8CIzQTdQISAT1vIwoXchUTKBMwEzUTMjI+PTIxJi83MQh8bw0HCTIPcgd1AQc3KDIAESw1KD1wNQ8oFhw0FBIOFggmdRdwMTE1LzQPNQ88MRITbwsHKSMJJiwmAQ8HNjUPcHJ0EDcrNnINcA1yMh0ULS9wLzwNFw0mKyMIc3ZzATVyMhQ+NTU1IC11Ly4qJQ4tMTErdRExFDUNNAhydx0xFzcrNRB8cAsXLBIrEj0X'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[175]='MSYtKDQlPTd2DyMQFDUNKAhxBTErPi03AShxEgsXMysTMDUyMgouFhQAJTAUBy4SMg8Raw4wDCYyFwF2CyUBLTZ9IxcBdTMyE3J8di8oMSMwJS8sDSADIzE9KRULchE0CwcGFg8AfHwrPQwmCiUzFQsXNXELPgM8LzY3LRESMXwUAgEuAQAxLSslNXwLLQksDyYjEC99N3wrFg0VAQh3HQstDRAvdRNvNhIrPBM9EywNJSkXEy4wIQkldhUrcgt1MhB8bzUuKzIPNnAxEw8OEjVyNBYNchEQMQAcHQt1Kyh2NjcVKxByfTY9EXwKNRM8NS0TPDYlC3wILAd9NjArFQssDXYNcyMuMjZwPHQQPXB0IBM1FC0DNDUPC28cNQM3NgcTcg99K3MTAjQm'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[176]='NyUPfTI9M3ExFgdvdi49FwtxBS4BcQstNRcJcRMtMXAJEityAT0LNQ0mfG8UByt1AXUCJi89E3IKLR4lNiYTLgsgA3E1NXY0MBcHEDQlETI0Fy08NxJyLAFyHB0KNXY3EhczNisuJTwxCi1wdBcuJg4mdi4TPS81di5wMis8CS0wEG8wNg4NcQooLiZ2PSMjCw9zEi88DicyNiksDTULKxQoNWsrLiU0MSZyLQt9AzQIACs1NyUBfDUXDS0NcnwtHCgzbw8+KSwrJQwdNT4RfAswA28KLjdwHA4PNw4QLh12KAFrMhcBNQ8uJTUxCAFxChcJLgs2ATcIAC1wK3UMFnYoMyMcNREXEw8JKzEKNy03JWsmHAgTMTV9MXUvcj0sK3EFawsILhYBD3wj'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[177]='EiY0Jw41KzwcCCMQMjYCIQ8PDzV2ADV8Ly4dN3UXACYKFx0uMRIxfTV9KygTNXIrHA8rKzE2LysIPA0pLwBwNDAXC3wICDc8Lw9wFxwPcGsvBygdKy4oEjEHC30UBwE2CC0oITI+bzE1Bw0VMT5vFQ02bxUyNQtyLzABdS9zcBB2LR11dSU3KzU9CXErEHxvMQA9NAklayUrEjQhDhdyNg4QcBcUPjVxEz0DMQg9DSkyDzcuHCwLcDcSAXITCBE2NSUNNA42fDULF3JvCDVvFzcQERAPNnUhNRYUEisoAzAvBg0jNTQIHQkXfSEPNigdATUJMTQlNTR1HgVvKywNLgoXDygPBwU1DTARdnUQb2sIBzASDXIvfBMOCTZ2CCk3CRIrKwg2KzwNJi0w'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[178]='DSZyMRQ9I3APPA08LzU2JhNyEXMyDxM0D3UxLRElLzc2AB03AT0FFw8oEzUvfTIWMShwawg2EWsSEC4mNSYRIzUPDTZ0F3I3dghyfAg9N2sxLQNwCAd8KQ0uEzAULSlwDy4RKTIPESMxFwISMiA1dTI1MB0PAhM2NXUzEHQgETcxLR03Lw8BcwsPNhJ2LignAQAzFQgtATUIPTUXCwIBIystC312dTAWHAc1ay8PbxA1BxIhCjQHNDAmfHEvADUxMT0PbzU0DS4yDxNwDShyNzEtCTUyNn0WMSg1bzY8DTYKJQUxNj0eJ3YHDhIvBgtvHAclNwgHNy0rcQYhK3IDMBQPdBV2LSV1dRc8JzEPNRcrcnIXDjUoFgtyNCYUCD0xKy0dLTEuPSsBLAgl'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[179]='MX0rLQh9LhJ2NSodMj58cnYINXIPF3xyAQI0JxR9AzIyFzUuCzwHMBRyPSgvPnEnC3J9IQ0XK28PECNyMh4FazE+by41NXwydCVxJxQtCRcrHg82CH01LRM8CCYICDQSMiwHMDE2Kzc2dRF1MSgjdQoSLiUBDz1yAT0SJSs2fC10FzN2Ci4lLgooMxc3EB03dgcKJnUWBXJ2LREoMSAjcRQKLiUcCCwmLzQKJysXNXMTCgMtDxIzLTYwLS0UNi4lNxABLAouMiUNfS4dNyYDLA4SEiUPNSsVLwADFxwtbzw2Ln0dMhIxLTAQMhIPPnx8FC4jNCtyfHwyPgE0CHU1FzcXPRcOKBIlFDZ1ISseCic2EAEXLwh0dXYAK2s1NA0oEz0FdQkXLCYTLRM3'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[180]='dnIUJRwuJTYrByM0AXMtawgIEXMUNRMrNj58K3QXNzU2PR02NTArfDUXN281LS1wDTUKJg8uMxcrJgMVEwYHKCs2fSYwFy0XDR4KJg0lERA1LAk3Nxc9awEHLzwyFwEsDQcjMTI0CW8cNXQXNBcxKw8tLTURFgc0CDQFNgt1EysBNRF8CzAjazI1KzISFzEyAS41cwg1IykNCgFyHAIrcTYQNhIPMDFwLz42Eg0oNywxDz11djArdTcgAXABMCsxDXEHLRwGBygrD3MmNgJyPDY+JXINAC82NQ4NLisXCXEILjMyDihzHRESPCcIACMVDSwNNQEtKzY2FgsXNgAtazYWChYLIBwWAQg9MTYHDxcrIANvCwYHfAEKEzEvCjF1MQ4PMStzdC4BNSgS'
+if T then DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=65 end
+if T then oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=93 end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[181]='NCZ2FTVxDxcLEHBwAQI3fAEtMRAcMDEXDhApbzYIMTUNEjAWHDYxMg0IdBcrEGsSCRdvLBIgNRAPc29zMg89EHUlK3Y2FyMtMRcPMjItBS4SFgcyMQdwLDEIMCYBNjU2MQ8tKBN1E3M3JQdvERcFbxIWD3UBcgdrCy0TMg89CXMxcnYuDyUqJXYKATU2D3I1DygxKzYldjENPSspFD18FysAL3M1FwUsCRIxPA1yEXETcQ08DwcwFis1N3E1EHwQDS5wbw8ALTYPNXYyNCUsFjQlAysrDxEoNQcDNRQ0BXArAgN9MS0zNTEoEyw3JhNwdi48HTUAKxANEit8CyUHIw8QLTEINjUxE3J8LgkSNTQcAjc8NRIzEDIHbygvDwISDwAdPDAmIzQ2AC9w'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[182]='Ng8zditydnMyDzwnMnELNCsgEXV2ABISNyUNcgEHKxAxcxEjLwI9MnZ1MWs0EgExDzUDKBQ9LzU2AHJ9LwgDKAoXHTI2NSM8ASgTFxQ1KRUcADEjAQcHFSs8DicLPTVvNS1vI3UmAhY2Lj0VDhcrIw0IayUICjUsK3USJw4uHTQLEBEtdRcMJg8WDyg2JSs2CxA1MnYPDh0UDgcwLwdxFnY1E3UTCC8uLzZycTElNBY2JSwhCHM1NBRyKXI1JW8QKwc3cxMocDYKJW91DzY1MDY9Ny4PDw0xMCASJjE9cDEBPAYWChc9NA4tNXwLdTFvMCA3KA42bxATAD0wDTUvMQowMh0UPS11Mj4rNAslK3wrLAcsFD0tNRRyNXwxFxIddCAxNDcSIzcTDyN8'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[183]='DigRMnYIPCUSJW81EhBvfDIHNzcUNj0rdBcHEA8OCzEIfSssdSZycjE2IzwvAAMwLz0vNQE9IxUxLjM2MiAxNBw1cCgwEjE0Eh4NFQsSLTEILAd9MSYoIQgub2sPCBMxDzYpLTYXbzE2PjVwDw8RdTYmMiYrIC0yCjA1FxEXPTQ1Dw1rLy0BF3UWBTwNBgk1AT4lNA4mAiV1JTdxDyY3Ng8GB3IcNisxMjQNNRQ0DXABNnItLwAzcgooNRcLCDwSChc9PAEtD3ILBz0oNQcPdTQmLB11Fx4nCiV0Nw91M2sTdTQnMRcHcwsoNzYKLnxyKwgtMBElBzYxcnJzMX0DIxw1A30OLRE0Cw8AJi8PdBd0JS8XKw8RPDY+KRcUNityKzYTcDYXCRcKLRMw'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[184]='dgc2EiswASscCDE3Kz5vFTIANRc1DxN9MCYwJRQPMiYvcQkVMQcTLg42chcINi02CAA2Ji8tNy0TNA02K3INczV1EXMRJnxwE3IrNjEAAy0OEnMdNQcRPAgPNTcLLAc3NRdwMTIKESkKJWsSMgYNPCsHLCc2FzMtDRczPAFyCygOLQcxKwYGIRQAcnIOKANrMQgMHQgAATcPKAFwMg4NNnYuNzwIcQYlMhApdXUlLhYREAMxNS0NLhIXPhJ1EDQnLzYSJxMPci4TLQV8D3UDchQtBzEBNXxrMS0tIxNyLRAOEhE0NyURIwh1NRAvcg1rAQc9NDUHLzw2cg0xAT4pMRM9MywUPTcsCDVrJQs9KCcND3Y0Cy41NjU2NzwRJQ0VEiA3cS9yDS4rHglr'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[185]='NTVvbzU8CXUNCCkoDS0tNTUAcx0UD3MdMQByIxM+fSV2Ci0XDy4BPCsmERcPBws0Lw92fAoXPSsSFgsydgAtLSsSMxUcLA9yCiZ9JzE9DzZ2ChImCiZwdgEtASg1DzMQDjZ8NzE1Cyx0JQFrATYzMg9zcjw2cQcjMSwJMTIgE3EIPQl2Ni0GJwtzfDQyB3IsdigxEA0AHW8PDwwWMTV8Kys1NzQ1NS80DzYDfAsAHCUrNXwyMBc3fAhzLTULLm88DQdvdXQeDXYBBgglCwA0EnUmMXV0Fy0xHC4BKw82djAxczYmNigcFjUAA3ATDzwmCi4oIQo1E3ErdRMuMj0sITEoKywyNQtydnUTfHQlLRUOJnw1FAAlPA0sBTYUPi8rMj1rJS81KSh0FykX'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[186]='CiUxKzQXM3w2KBE2MgcJawEPEiUvfTErKwoRLTEgLW8cLTEyNSYTcTEPDzw2Fgk8MSwOJwsSMzQLPAUsCwcHFRQANCcLDyMtMTArbwgwAxc0JnRrCAg9MDIuLTUBKDc1Mg8rKxMuKTYTdS08dig9NzAeCy52dXAyCAdwczISEywyEB0yNj4BNzYIAh0OJQYmDy03KC8tETUPPQ99LwgrNAEAcx0vDzctFDYqJXYtMTYvcgk3DT0RdQsKNiY2Fw81KxIjKDY+PX0PNSgdCD0TaysocSZ2dXBwNXI9LjUmE28xEj1vdgcdLhwGCyN0Fg8XL3N2LTYGCTIvDwsVATYxfTUAEXIvcgUtDjQPchQ9PRU2Jm9vEiUFawosB3wyPS8rKzY1c3UXDSsvLhEQ'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[187]='dRI1NHQQMzw2NQNyHC18dTAlM3wNciMVDRcDdTAXKXMcNWsddi4zKXY8DW8BcgdrLwARKBQ9IygKJnw0MBITMjcXDRUyCitvL3I+EjI2dC02Bzd1Mj5vcQgAb3IUAHA3LzYvcDEwAzAPPAsoNQ8PNAEuPSsNFzE3NCUFKxEWDS03JgwlFAg0HTY2EXULNiMjDxIsFit9Ny40Ji0yMS0Dc3Z1IzIrCHYwNhdyMHZyNXULNgN9CA4UJg42NhILEDc8Ew8zbzEQKTUOLjEtEhATay8wNB0NNjdxDyUjcA8sCSk2CClxNxcJcQ1yARUPAC83MBcxNQFzPCEPDzNwdjZ0Iy9zAh0vdXIjDXIMJg4lLTISJXQ2dSU+Ei8+ASwONjMuNjULcXY9CzwND291'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[188]='FC1wcQomLTccNnR1DX0jKDYeBTcvADcoNTUtbzYIEhYUD3MWMnMjaytyNCd2Lnw2NRA9Lg4oE3wcBgYWER4HKxMwNiV2MDVrHAYFNTVzNTIJJSkuLwAtNzcSASgREjUrCAcjfBImLTQSJRNrChcdFRQwAXUrAHA3C3U9PBEWCiUSEissNyY3dnQmLTA1BzQmCz09PBEWDTYyfRE2K3I+HQECPXExADFxMjVvcwg2MhYxcnJ1CwcdcRM0BTc0FyYlEhIuEjYuMzcxcyN1NyUJLAg+HiYrcy1zCxclfQsXC3MPcisoMQcFcDYHMTwNLQcVHDUcJTclBXE2c3wyNiZyEDYPDXEwJi98KzU1NwE9N3ILcj02dg8JNAgoAzw2NSlvLwcvFQFzNzwONgEx'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[189]='LzY9cxIgI2sIKDMyNQ9yLit1ExUyCDFxCyU3LCs2I3wOEnMmKyYDfQ8Ccx02LW8XEz59HTIAMBIcKHBvE3IpfTEufCkNfSMyHCg3MhwtMzQPPjEoAS0uHQg1IywPLTAhdBYPPCstIykrKDNwMnIyEg0PLyMLdTdwNg8GJTZzKyMUKC19DS58PDEALiUvNQk8FA92cxEeBTUKJTdxEiYtMhQAKiU1fSstMQcqHQkmERA2cxMyKyUHbxw1MTQvKD1zNxIxLg0HayUvPn0hNT4vcREmKTV2PTQnFHMjLgECcSELLQwSKyUrNRMOD281EHAuMT41MDUuNykKEDcsDiYBEDImE3UydS4SHC4rEDclDXMIDy08Kxc+HTIXN3MPCitrCwgDcTZzfDUKFw02'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[190]='CAoRfCsoPW8xPjc2HAc3cg8tfRI1MCNyEworMnYtMzU1LA8rLy0JcjUmAXMUB3EmDhI3axwAAzw1PAcXdg9rEg0HHh0ND3ZzCy4zFw81CRArCjc8FC0CJysmci4JJisxFH0xcwE+Eh0vNAV1FH0BKxISATULNj00CCwLKw0ldHwPPTc0CiYjMRQKASkBCDdwHA8PMQ42PSw1Li1zHDU3cHYsBXMUAHMWDyYjbxQsBRUBc3MWDhAzLS8ILxcIBy8xCwgwJw0mPXI2Aj1xCzAtFzZ1N3UyLilzDwgpKDUmN28KLRFwDi4TFxR1MBY1LnApKz18KQ88BTw2EjQlDi4pbw0QKS0yDwEjDQ8Rcg8tD30rKDM3NS0BN3QgK3ETKAIWDyUxPCsmEiUNcnZ9'
+repeat until true
+while false do break end
+do local QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=52 end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[191]='C3NzJnZ9NRB2Cit2dig1cQswA3ATPnwsChAdcxwsCTUrc3RyDQ9wcDY9MRUrdXESMhAdNCsPMTcxLh02FDZ2NDQQAXB2Bx0uAXENMgoQKy0BDzNxdRBvLXUlATYxcn0SNgIzIy89BRcrCHAXCRIRdRImESwBLm91KyUjNQotBXN2LhE2DyhyNjISKxAyLm8uLz0RFzIIfHA3JXMmLy4dIxQHPTArKCwSCzwNNAEuMTIUAhISNBYJNS8HEh12DxFydgcpNTI9EXM1ci98D3I9cjUlE3ILKCMoFAc9fC82A3ILDwk1Ci0HcjEXCzc1PSU8EiARNAsmASMrBxM8MiVyLSsmLCUNBz4dCSA0IRQ+IzUBCHMSCxByKxISPW83EAIWMTwPIzcmNXM2By1x'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[192]='MiUDKAEtCSM3EDE8MSwNMTJzcGsvAC0jCAArdQstAxAyAistC3U1Ny8AM3U2CC0uMXENKwgsC30xfTcrMS0CJQoQK3Y2PActCwAsJxwCNTATPQ12AS4DFw8SKxcUCC0rFAATfRw1LXx2NQoSHA4JLjUtMiYcABF8dnNvb3Y2EW8yBgU2CHMsJQEPHCYyJSsrEh4NfA0tLXIBcgAWK3IzPAoQKCUUBy0uEw4LNCsPB3AvPS0QDxcjNQE2NiU3IDE3ERcBEAsSAzwOJQctESArKA0uMCcyPj4WDSZvEA0QEXELEHIuD3EKISsCIxcwFx4dMBADNjUufDwxcgMsMSZzEjcQNSg1CiMQMTUBNg8HfSc1EjUxEwBvNQEwESg1Dy00dSAjFQomPiUUNRFw'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[193]='Ci4SJg4lETcIdTUwCRcsHQsWCS0PPW8QMSA1NBIXD28LcnQpNQhyFw8ALS12AHw8CiUuHTUSAS4PdXBvMBclLA89JX0KNTdwNSATcDU9NRA2Lh4lDXN2FTIAN3UUAis1MjQPFxw2LhY1FzVyNj0lcjYIfRY3EB0VEwAvLBQCLCcwHg8wDzwOFg4XETEOEjEQDTZyK3Y2dhU2Dg8rdgcjcBwPdjYxPh01CAAzIyslLyMwEAwdFC0Lb3Y2MSwrJQV2dCZ0MTUPDhIBACV1Kxc1EDUQLyg0FwFxDxA3LjISN3ALPiM1Ez0IJQ0HN3IILjN8NRIxLDY+PTAyJSMXEy1vNTE2NSsPFzVwCSY1Iws9DBIcCD4dMnIjNHZzfSExECNyNRcJNisPNXExMAEs'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[194]='L3J2fQg1fDUUdQNyDi09cgkXBhYUNStydgorNzIODxV2MDIWKwAdFwgHDXwOEiwhChAsFjYtMysONnMSD3MzNA0XDSMrLXJ1CxcBawstBysOFwtzCHIGFgsOByMyCCodK3N2NQguMS02PQVrMCUvKQhyNS4UACoWCzUyFjISLiUIAjUoFAAjIxQALBYLPQ0uAQ83awsQNXAULQodNxA1MSsHMzE2FwF1MQclbxwHCSsTKBFyAS49fQ4QJTd2cyMVCD42JRIQJTB0FwcxDyYvdRNyCyg0IC4mCwosJQsII28xPjdrHDYDfAgHNSMcLiMsFCgjNggIPCYrJQkxMiY9KwsmfRIUc29xKyATb3UQfCgBNhEQNjZvMi8IfSU2IC4lNjYsFnYHJSMUPA8w'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[195]='dg9wKzEODS4BLilvdgoBFTI+I3IIAC8XFAdzJjYHcRIrFgsxDXJ2KAEAKWsUKHA8K3JyPA4sBW8NczdyKw9yNTIGDiUBcxN8CHEPcA8XDXYIcxM1DxI+JRN1MBYxcQ9zNiUCIQE+Ly42ICs0NTYxawg0CzExMCM0AT0JEDIXKSt0Hg8tNiYxbzAlMXwvNXIjLzZwKDYSAS4LLTASLwcpFzU1PXwRIBEQL3MTfBElM3EKJQYSMjYpIw9yBygBLSs3Kxd9Jws+Azw3JTEXFDURMgsXcn03EBEXEiY1Iw0gAxUPHg88dj0TFwg2MXIJIDUoMXM0HQ0CAxAyICN2MTwHfQsIKTQ0Fw4nMi0jLjJyESs1JT1rMQh0dTVzKRd1EG8wNRAMFg0tCXJ1F291'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[196]='NxAoFg0+cC4IKANrCy4lcRElcm8LCC19MigRNgssD3w1NjEjCw8CEg1yLzUycgMjDzV2NwE9CzAINnAQMBcrLAEsCXE1CCkxdiwJcHQWCXMvPAcjDiU1MQ8Acm8LNnAtNnMpbzYHATQrJTE1NSUoEg4uE3INMBEpDzwNfBwKERUUPhE8NT5wcTEAMh0NIAMXKxAlFzUHcjEyECssKwYJNC8CEXx2LR0udj0oJS8uEzU0JiNyCCgDNTEPMBIIBzEwMS0jMQg+fHEIPnAoNgIBchRzfSUxLREtChYFbw99Ny4PczEsNT43dXUXA2sOKDYSDQ8SEi89AygIPBQdDS4pNysIcnUcNS4dNjwPKAEtHTYNBwk3NTATNwFyKTULAHI0EiYpMhQuMyk2JRIS'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[197]='NQcBFwsXKTYBDwM0DzYjKRQtL28LKANrHDYrMRMtCzwyci1vMhI3LS91M3ABPiVwMTASHQ8KIzYKHgk1Ew8OHQsKASkvCG91djAwHQ8ufG8NCgEsCwAdcRNydjQLJgMwNnN8NzYCMB0yPQkXKwA9KwoldR01CC0jKy41ays+ATYJEBN8MTUFLAEwNWsydTEXCzYBcxQuLWsyDg8sNiADaw8eB3wNdTUVEw4NNQ00CWsyPjdxEiYvNDFzdSU2PX0SNj5yMAsIExAONXQVMg8TfRwHDxAPLSUrdSUUEjISN3AxcgkpNyAjdjU8DTd2cy4Wdj41MHUXAS4yDyolDRcdFQ41LRcSFg1zKwACHRQ+M3F2PTMrCxcvKzUHKyl1JRQmNg8oJzE8DXE0JmsS'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[198]='dSU9NSsXMhIULAl2Di4BFQE9ATQxKBNxNigBKwkeBWsPD3Z9DxIwJQgIAxUcLnAQFD03cDQlPWsvcQ0QMX0xfDEHPXIPPi8rLzUNczE1LX0NNi9xEhBrFnUWB2sPLQkxFC0tNQsXJXx2PQkQDi43cRwucDcTcwwmDzVwIwotL3EKNRM2CzQNdXYoNzEBLSk3HAAdNQ8mNTcUBzF9ATYtEAs+HSkJJjQdDjV0Fw8+LXMIfTc2MS4lchwuHS0rNAcQNg83MTZ1cnB2AAMudj0vLRQ9DzQBKDIdMiYxfQFzPiUICisjdBATKw02AzR0JnJrL3URLQ8lMh01cwEsDx4JFQkXEygRJT0tFDAxcQotcBALCAMQNn01KxEXPXUKNSs2djAjKTUwAy0rcgVw'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[199]='dCZ8NzI2I2sTPW8jHDZ0cDclExcyBygSCzwLFTI+KCU1PSN8dCU8IRQALy41PQEyNT0JdRwHNzQINQN9FAoBFw4WBRU2KDMuDSUOJRNycRZ2PAUuNX0TcQo1L3UBLjd2KyY8Fi9yKRccD28rEz0tKDJzETYcACUsLwIxMQ4ldnw0Hg4hDSURLAEsBhYIByN2MSwIJjUQEzR1JQssdR4LIw41KXIvNW8rMRcNaw8QEiU2cjV8Cz03KDIXEzATcyMsdCUzNzUldSY2LgMuATwPNhQtfC0INm82DxYNLi9zMRUPCHQ8NBc1NgoQLXEINnMdNQIzcTUPdigSJnQyCAcBdg0mAXM2NjNxMgg1bzE9I3IxJnB2LzUNfDUmbygrFyNyMTUpNBIQKSgPCC19'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[200]='KyUzawkQPBIBcgNrNj0TMg0CcnULLQMsMCAsEgsoEzYvCjU2MQ8zNzEAL2srIAFwFAo3MQtyCzAPAHJzHAYFMTYXb3E3ED1xDRAjFXUgI3EJEjM8AQoTawsHEh0NAAMsCy01NS8HKRcKJj00Cy4DLDI2ExU1NncWDiwOJw4XMCETBzFzDXIRdS82KSgJFgoWL30sHTUHKCYLcg8sFHMoFg82AhIUDzEXCyYDFTIuayYUfRN9CjVzHSs9ERUxcxM8CzYxIxEQEXUTPSghNxcRLjAgKzErCClxFDAyFgF9MSgyNQMyNSgcHQowNXU2PiN8Mi4BcDcXbzQNfTU0ERAlcy8AfG8vcy8VAQoBcjIIMzUNNAs3AS5vaystIy0xAGsmDz03KAsCMxUUAit2'
+pcall(function()end)
+if oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa~=oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa then else end
+if DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv then T=58 end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[201]='NBclMBQ+KXIvLXx2MQcpLRMCN3AxPQctDX0uFgkXBWsrLQN8DjY3Nw8XNXwKJTcXMjUtFxIlCzcKIDc0MXMpKwoXNxALJnRwMj0GJhQPb3MIPTMoCxcLcRwAPTYNPjUrdBICJjU2fCwyFytzDTV8dSsQM3YULA1ydjZzJjY1PBYULStvMCZvKDU9IzcLF3EhEz0FF3USIzEcCBE2Di49cDFyI3I1cgV1DwYNFw8AMzEBNnw1dR4NLjU1EXw0JQEVdjwJcxMHB28cNQcxEz0NEA80CCUUKBIddSA1NRM2LSg2ACk1dgATMQklNXAxNQUyNiwLNAEoN2sIADIlFD0HbzUHKXUyEB02DhIxfRRyciMxD3QQKz0Haw81CiExNA9xK3U1MjU2E28LfQM2'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[202]='MSZwKzFyBzcBPXAXERcvcQ8+KXJ0Eit1MX0DFSslIykcLRM3CwYOEg0XNWswFxEQK303MXYILBYyCjc8MCULawstfC42ciwSDz4rNQEtCxU3IDU3DQAzLAt1cDx0JjwSFAc2HQgtAy0UNAkpMXIBFzAXEzANJhMjNRIxFxQwMXA0EjwlLwcBFxR1MCF0FgglCH0rKwEoMh0cACVyMTQFIw4oPTYNEDIWMCYpfQsHM2sPCDNxNS4CJQogMB03JQkoHA8sFi8oAXEPPiMuDw8PKzU1dnx2KCsrDi41dQEsDxAPFyN1CwoCJhQCNxAxNnIQNSAtcws+PX0xFzF1MjA3FTUHLX0TNS8pESYuFgs+cDcvAj4SMTULLCslA2t0EhE1Dy0pcjUAMh0rPStx'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[203]='CRYPFxQIKhIUBzQmCDUJLAEIPB0KNXI2EywFcgsAJTABBgkXNTUHcy8tDy0BLR0xDRI3czUAMRd1EnAtAT59IS81fRI2JSk1CwcNLTQlK3ISEgMxCi0pfQswLhIJFgcQdSVyMCtzKTIvAhIWKyUpMAomcHY2AC82KwApczIPbysUdXMWCz4jMTFzNBYOFx1yKxYPLg8AJTcLNAcwdnMrFQg9by0LKAwldgoBdnY+NysUPRM8Ez09MTEmcmsKLQlzMggjMTIgLXI2fS0oLzURcQg9cDcyFxEVK3M3cjI2dCwrICModg98KRQGC3B2Pi0oCC1yLHYGBTIwEAEyNgA0EjYCMCY3IDQSMgA1azIKMS52B29yNj0TKAFzAzUUci9wNjVxEhQ+cG8cDwlw'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[204]='NR4FMTUXEhIxJTM3DygRLnQlcScNFyUtNQcxIyslD3ArKBF8DRIrPAgocjATAi0jFAcOHRwtLSwPFz0VDQ8zcg0SLRV2CistC3UwJg8tPCUTLissDyUBfAoWBXYNJioSCDUJa3QQKB0IcgdwEhI3MTYuMzUBdQMjNnIFMi8wNxALLi9vCi0lfDJzL3MPAjFzESZ0KzYIcjUNJjAdEwcjPA8ILXINJhwmdCUpcjUAES4LcnR2CDA3cA8QMxB0JjEwCDYzMRwtax0cDylrDQctLAEPC30vBzUoMS1rJjQSAyM3ECtrKyUDbwE2ATR0FgonCwh0chMPLiUPEnIVCyV2fAg8DXM0IDc0HAcDNHQWBy0TCHJ1CAc9EAo1PXMrECk8CDwGIQEoA3U1PTcj'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[205]='DQoMFggtHW8xDw12DSgjNBNydnM1PiNxCz18LHYuEicyLi4SKyUHNzYeBXEvDhQWCxcNFTUCPBIxPi1yDi4RKAkXcHU1LjYdMRAtLAEPfRY2Bw01NnMDNys2cC4rKCtrLwo1KA0HPXAyEgIWdjUREDYocmt1IDVwK3UDa3ZzMhYcLgF1Ng8vc3UmNRUKEjM1ESUPFTASDB02BglrD3NwPBMCNzUxACkQDTYzdQklNy4rCAExE3VwfA4XKRABNAcxCy0sEjElD3I3JSkQAQg1FzU2MTcyDw98NCV2PHQlN3EUcjd2CChyEHYsB28rEC88CDYRNy88DyMTPikuDz4DKA01IygPEDMtCwYJEDI9MXMNFg00Mi4vNyt9MXUrAG8VE3EHFXUldis3JQtz'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[206]='DiA1KHZyayUyBx1yHDULchQGCBI2DwAWNQYLfQ0AE3EBPXBvDTUjNzUPBRAJJjUwDXJ0Lgt1EzUNcy80C3MjFSsgAic2EC1rC3EJdQEPExcxBx0xMj19Eg9yL3IJFwIlHDUvfCsHKS0vNTMyDjZ1JQ01dhAwFwIlEiATcwFyFCYBchM0FDVwKA0tax0xDgVyLwc2HStyAiYINTFyDw8MHRM8BTcIB29vL3M9cggAci0OEjEoMTUCEg8QPXIvPhEtNBAeEgkmfCkyPioSNTQJPA0SAiUOJigdEiArLTY9cBUPJT1xE30BKBN9EyMrNhM8KyUDaw4uMTANFw0oLwAvNzQXCzUcNTcXMi0vMggtLTcychM8NQYNcwgIbywNPXByEzwPEDEILRU2EDAn'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[207]='ChcPNQ91KxArNSMyDT0zawsoE2sPChNwDRAdF3YIcRIrJgMQNTUvfDYlfBAULBQSAQcBKTFzfDQUcy0jMg9rJQ0XJTQ2Ji98AQIwHTYHBS4xcm83D3J0NXUXDRcPcjYdMhATKysuLy52c30nAT49NAkXfScPJiwlDhYIFg4mdjYLPm9yDTQJcw81cRIPCjVvNRcKIQ41fDE0JXBwEz4pKysCLXMTKAIlDQ8jFSsHCRAPBwUVdg8LLTU1IxAOJQtrNQcwIQs0CicBfSN2CAAvaw0mLyh0EBE8ESUDMTE0DzQLNQk1FAARdTJyEzx1IDExdigcFhwwKywILSN2MgItNi8IEh0yLAcwdnMMJQgwK2sIfRFrMQgxdSsXESk2FyM2digxfA42dHYPEnEh'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[208]='NnEFMjYQfScyCjcsNyYwEgEPLRcUPj02DyURcQ4eCyMLNS92EygjMSsSEzI2cgEpNxYNFRQPBSg2KBNzLwcIEjQQNCYyEHAoEw81IzUCLW82JRQmMi01azZyNxAvBwMVL3VwdjAQPSMyKHA8DTV9IQo2Mh0IBzd8AQczFwFyK3YyEDMxdBB8PHUXfDUyNi8jAS0CEg8OBygTAHIXNCY3KDY2dm8yLRFvCAgBLREWBicBcykwDiZ8cgt9N3E3FyU0CC4uFjI+KBY2FyU3CxItLHUmEy0NDg0oFA4PcAtzIxAICC03HCg3F3Y1K3I1JTUwFAdvIzYXPS12ACUVdSYsEg8HDicIdTVrNBczLDAmETQJEhEsDQApNg0wEXYUNgMoFA9yawsSEzEONTcs'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[209]='MS01EA8SM3M2PAtvCwhvFQ4Xcn0BLhNrLzV2FxwHDzIOKCMxCwIBbw81ayYJEHMmNS58EAsmKS4KLm80CywFcQEuLh0PNjMrDyhwNwtzMSgcKDN1C3URNi82MXwUAgwlCyU3cjIIE3A1CHUnHDAxNzEPcCgyFx4hMn01LRMPMS4KKDcyNT01cC8HMzwPcgNxNQczdjIIdm8yAgM2HAI0JRMtDicKEj0sCwhwdTYuKhIKEDcrNgorNDF9Kzc1F3A1Ci0wJzEKI3EIPSUwCA4Pc3UlNzU1LWslMS0RLi8tNRAvcgwdCAcmJnQlfRYwEjcjdSAwJg4wEzE1CAErNgAxLgsHASwBMDFxCy1wMhMIMTwNKDMtdR4HMDIQI2sJJi83Nj4CJw0HKy41cnIX'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[210]='NxAjKQs+NxATcwMrDQ4JFTYXMiYULQYlNgI0Egs1D3ExKCwlMgBwchQAK3wLNRNrEwh8cg0+M3YPdREjFDUzcSsXMyg2NTcQDy58MnQgAxUND283NhI1PBIXA3AOLQkoDSYTFTJ1LSMPFyN1dRYKIQ42AS4Ncz0wMjUtMDVyM3ErMBMoEwcHF3UQfSYTDy00DhczcC8wExA2Hg9zNXNvKC8GBygBLhN1CAh0LisoHCYJEBM1NRcmJisAMWs2MCNvdBclLHYHAyMOMBEVdBctN3YtM3B1F288MBclK3QlKzx2PR0XDRICJxIXcG8NAhE2CDUBIxMHD30BAG82Nx4FKysQAiUJJgIlEzUBKTYmAWscAC0oMj03KwsgNTQrB29vCjUtfDE1bzEBNTU8'
+repeat until true
+do local DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=321 end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[211]='Mg8jdgssDiYrPRN8MgI3IysmKXEIDy80DSUGHTYHFBIUAiNrNXMBEA0mLzILFyU1EwcpMRMuMiUyCgMXDwA1Fys2EzYLNRwWDQAxMTY+ETcwHg4nDi1yMDU9HTQ2CBMQMjV1FhQ9AS4rdT03FH0DfTQlEhYPF3JzAT4oJhMtPTJ2NjEXKwcPKzIwNWsLIAFwdBIRNjY2AXAyFyN1CwIxNA41CzcBDwU8dBc3EA99MCErPTctCzArPBMKETQRJnI8NhIRKy9zPBZ1IC1zDjUNFwgOBXUTdSwhMRA1MCsCMSx1JQF1dRAtPA8sBXYwJnw8MQc9cjJ9MTE1AnAtC3UDMTYPCxAPNS0VCzYxNjJyKCErLjMoMS4wFhQAE30UBxEyLzwNdTAlCRcLNTUu'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[212]='dig1Lg4uEy50JQU2K3Utcws+NTB2cm8uFAgwHSs8B3UrcQ1vCjYSHQh1PhI1cgwdMS0JNQsKNxARF3I8NjYrcjEoMB01BgUtNTV0bysQEh0IMAM3MS0HFxwuM3ULByMjMQojcSs9BzUNCHY2AS0BLS8ILiULPQdyNi0GHSs2L3AOJQlxdjwNMg8mMh0IfS0uAQd8FzQQLCYNLS03Ey0tMREmIy4rDxM2LwcdMTEPbzUxLQUoMBcOJQg+MTI2NXESDxczNhEmMzQ2DxMwCAoTMhwII3MNACMxKz4eIQ4QIyN2cnwQHAI1awh1Ky4cLRMjNg81Kw9yaxYJFxQldBYJI3QlBzYvBgt8Lw8DNwo2NXwycnAyNRIBNDIHB3wIAC18KzwNczUAKywKJhMu'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[213]='Lz0+EjUIcSUrLnESCy1wcg8HC3IILi8sFC0SJTUWByw1HgUoAXJ8Mg8AfC4OEHJ9NBcHMQEAcm8NNQsuMgd8chQIK3F2KD0sKwJzHTUGBzEIACNyEwIDcBwKN3I1dStwCi0HPCsHD2sSHgc2FAouEhRydDQRJgF2FA4KJjIPDXINEhFrDQhyLhNyCzIxEitzDSV1FjQQPiU2Ni8yLy4mEi8AERASJgFvdgcTNQ0APTUyKDdrMB4JMTUmdxIyDg4dNnINbxEQLXArLAcyEwg3NTEIKXEINQ83FH03LQsoE2svCgMoNTAjMg4WCS4NAhEQFHIrNTI9HTYLADQhAQccJjEKNTQxFgk2djURb3YsBTd2cyMoCAdrJQEPA2srLSkQCwAzKw8tBzF2Bwk1'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[214]='DzYSJTJ9EW8LPA9vMg8BNDE1C3wPBy82FHIsJw4uKxA2cQcyDzAwJRMtFBYBNSk3MiYxcwgHC3EPNAksCz0xczY1DxUTLR0XHAYPNQ0+fDUPNQwmMCUpcTUSE3MPJSkuNBItLi81cjQyLA11FHIpLjZxCzc1PA1wNS0AHTIIcDYrADM2MjYtMhQPC2s1PQcQFHJycBwHN3wIDgcuMT4tLjQQHS4ILi82MBITKxIlBiETNAtxMT0jFwstfC4yJXwuNggpfDAXE2sxJStzL3IzdjZydDErBwdrCjU9NzYHCxc0EC0yMS1yFwECI3Z2dQNyFAcpMRQHHW8SFg0XAQgtLQg+NzQBdREpNxAvchwHNRUrAHAjNnVwKw42NS4IPXIoAQApNy8tPB03Hgtr'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[215]='DywLLAkXBhILJnY3FDQLawgIcDQIPiN2MSVwPBMtNiU2FzMoHDUoEiswIy02PXB1D300JXY9PRcyMDE8MXJ2MHZzERcvCDYWChAjMi8KNS0IPTUrMBJwNwE0C2sBKD1vDhI3dgsHbyN0Fy01NiwHFStyMCExJXYxdj1yNDE0D3UvczNrdi0pMHUQLTA1JgFwNnUxa3Y1BxUvNXw1CC4vLDQXJSsRJQcxCiUpfQotA3F2fTEtdnU1FTUGCzcyPT03ATV0NCsXDh0PPjYlCxAdKA0HKzUNLhFvMRd8by9zLCE2NQE1DT5zEggPA28rKCs2DzYcJjEoAzIyLRExLzUGEnYALXE2LS00DjUxNA8KHB0BMCs8EwcLFxR1ci0vPi03djUzKQs1CicrFyUQ'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[216]='Cw8HIwsPERcNF3ElHAIrcTcSATUOED0wCh4PawF9ASsvPAUpER4HFwguLWs2CAEyKxByNA8SNiYOEgErFCwHLnYHbzALPXIjLwgtPDUIKCcPcQs3Dh4FKzY9cR0TNSk8KxBycw0mK3U2F28udgcHcwE+LCYLDgsVL3EPKA82PTwxCC8VDQACJys1AhILPi8jDyg1axQCES4UNjEsNCUJNjJxDXMyEgwdEz0pKDEwKy4rdRISDjYRcwsCNzI1JRMXdnMzKAsIdjAcLA91DhIRFSsXDTEUBgVrMRIBIxMIKWsBCCM0CA8jdisPMX0xJgNvCjUtNhElL3w0JSN8Ey0FFys2AywyFyMsdBATLgoQAzIREDwhCRAxcDIPBygIAnElNyY1KDEmMiUIPSwW'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[217]='DywJbw4tAXEKFgk0dCY9fREmdiwTLTcXEwcSJy8INzUNPAkXMnJ9Eg8tLzYIAnB2NiABFzYwIyMOFzMVCC1yLTUXAyw2BywWMB4HLgoSMy52cjc0Mgh2NA8KIy02Hg0yMiARNjAWCxcBNjQmDXUSJzUmNSM2c3w0digTLC91EiYLNSs8AQdyK3QgI3UIPAkoC3IPFSsQfSENJj4SEw8vNRQIPh0OLR18NjAjFwoQHXIyFwF2NRcvKzQeDTYLNm8rCAcFKDIIfDwSEG8uNCUwJy8OCy12Dw1wHCgjLg0+EzQxNncmDwd9JjYHb28vAAEVC3IDFws0CXE0EDF8KwgvLBQsCRUyAgM3CA8tMg0Pdm8cAhEXCxATMhwuHTEOFgVzDXIjbwkQKCExFwUp'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[218]='AQcdPAkWBSwOJS0tLwcjawEHKhYvNTEyMT08HTI9PW8TD3I1NRA3EAhzMW8xPhEuDQIRKHYtLzIBKHAtMgItaxImEzYBdTc2Nh4LFzEHASMcCANxMh4GEjYPdBAvcQk1LwATcy8AJXMyJXZzNBcdNQkXPiUPMAwSDS4zdS9zMSN1Hg81NnM1MjYXC3E1dT1xNCUjcw89KRd2NQs8Ng8TNA4SEXMLDxMxNCAMFgECMysrFg88MSADfQgGCSsBLAcyDzUKJwgANXAUBwtxCAByLA9zAzQ1JTE2MSUJFTV9NTAxBw0pMi09NA8sBTEIKDIdMQhwFwg9AzEyNAcrCRI+FjIIMy0UDy4mMX0rNQh9EyMxPT1wDS4TNjY0DW90FylrNhcDLTQQcn0rJSod'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[219]='DXEHbxQuA3MyJjM2MjQUJjcQHSwrAjdrMhAlNgE9KygrCDVyNyUxNg8PKzcRFg8QMi1wcHYGCxcPNQcxE3IjFwoXcCgPNS8QHDA2Egt9EzcrPR03DQgzKQ9zMS0BdQEXMTVvIxMsDXIxFyUsHDU9fRwwATc2NQkuMBcoJRElMzcSFyVyNSUHEAE2fG8rLAssMTwFKzU0CTQKEgEXNjYwFjU+EXEyEisXCw8jczUSM3MNPAs2dCADcjQeBxc0Hgs8DXIpNQ80ChJ2LA83dgApMSs1cjYNNAUyDSgBNDE0By4BPT0uHAIjNzFycig2JXQ1CAYFKTQSMhIxPAs3MRI9Fw8sDzArNXQ3Lz4lfDEHE3EPPjErD3NvNTZzfBULADE3NjUJNjcgNysTNnMS'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[220]='MQYJNg0+fC52cytxNXELcQ8HIywTNW8QNxcvawsALiUOFwUoKy43EA8SNhIyDwNvDworLTEmdHwTPAdyEzZ0LHYIcBU1NXAyDyUsJgsQfCw1Nm8XC3ELFRMKAzcrAHESMRcHLA8uL3F2LgMrKwczMQgPIywPNnAjdSUGEgkmEy4yLm8QNS0TKC89CTwRJXR1dRYNFSsucjcSFx1vDxcrKBEQJX0PNQE1EhIBNxImfSY1AG9wNXIRNgsXCTR1EjMtD3EPFSs+PTANfS0tDT4zNAklFB0ULTwdAT4tchQuK3U3EAE0CSUTcA4QLyMvfS0uESUMEjJxD3M2AhEyCjUqJghyNCcrPQsuESAxMXYPEy42Dys2E3N1JQhydisvfS0uFHMjcDI1B3ArPRFz'
+do _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM=100 end
+repeat until true
+if oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa~=oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa then else end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[221]='dgcFKA8IPSM2PhEjEzUwIQ89ETQLdTcoERcxMRwPLWscAC19CxAtcjUQAy4BcjM2FAgzPDYlACUyJS0QCHI1MQ09cjYTLhwdHC4TNwgHBTcJJgFzLzYrLjQQfHIKNAssNiUOJys8FBYyPAoSNgc2Fi8HDSx2cjFvNQ92bwt1cxJ2LS0sNnJ8FQE2dnwOLAU8LzwFKCs1DXALFy8jDRI3Lg8CNTA1Ait2DzZwNTJyfHE2cgsVESAxNjYScHALNiwSNhIrMQE1L3ExLAV8ESYzcDIKEXITPXJwDzYwIRQ+E3M1MC0sKwATIxMwIykyNS88DxA1NDUSN28ydS18DT4pPDceABYLDw80CxADKDcmcDITDgU3NQ81EBMuEXMxAAMwMjwJLQo2AWsxc3wp'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[222]='MiVwNTUmPRcKLTwmFA8rIzEIKzcNLXIXKyUDNTU1PhIRHg01MnMTcRRxDXA1NikjLw9zJjAldjQxJS18CwITIzIlDXAwFw0XChYHLQotKSwBdRMsHAByMC80D3ILHg8rdB4OEg4WCXIILiU3MjY3Fw0uE3AUcxwmCHMpKAgAMSMLPnMlFCwFK3ZyMygILTMXCwB8LRR1LTY1PiwhNRAoJg4oNzUTKDQdAS0tNA11PhY2LjNvNQYPdQotPRc1cwFyEzAxFxNycxYLByN1L3UrMjcmKh01Jj02dCVvPC89L2s3JnR1CR4FcDUIdCgKNS8tL3NxFissCy0BBwExLzYtbwg9HTEvcgwdMQ8pMgF9NSgvCDUwNjV2NREXAxcwEgMrKy0DLDIALCc1dTEw'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[223]='CDU1LREXExA1PAAlEy0Bay8oEywBc3A1FDA3FQ4lDSwPNSlwK3J0cisHC28xNm9vdjYRNwg1M3EJJSlvAQcdMTcgNTJ2cQ4SMRA1LhM2fHM2JXAjCwgDfBQIASkydTM1E30BPDYXb28PD298ERJyKBQtMhYUDgdxNS0CJxIXL3Z2Dgd9FDUrNBwsCS4vLAkyCzwPMQkQETQ2PSUwLywLNy8CAXMBLSsXChc9FysuNTQNBzUtMg8xLitzKhIKFzwnHA4NbzAQK3APEC8sNQ8NLnUXLSM1BwtxNg8wJTElMxcLLjcoDyVyfTItC3E0FyM2L3ItchMPB28LEhEpNhByKDECEzIvdRE2ChYPcQ01NzwBchQlAT1yNXYCMTw0FzE1NyYxMDYwNiU2EBN9'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[224]='MhcrNwgPcDcLAB0yMn0rcA8lNWsTcgFrChcTMCsuIzExBw98FD43cwsHMCYBNTdzCAA9KAkgE3ENJSs0KzVyMS9yL3YNfTExMjV8KAomPRd2CCwmKyVwMnZzI3MPKDM1D3ITay81fR0OLhMQMQA3Mhw1fHATPgM1NQ8jNhMCIzYwJnx1L3UxPA4QNxU1Pi92djABcAg2djYrLi1yNQh0FxMufBAPLnIVdnU9LjVyETENcwIWHAcBfDICNS41PQ9yERB8cA02KRUILQMsNTULKAoXA3EPCjQSAT03fDY9Nh0RJj4dMiUJfDQXDRcTNTc0Lw92fQ8KNy4xNgMoNTQGHTEldHIBcnIrDzwKJQoXCTQvAj08Dz08Jw81ExAxLnx2LwIjKy8CLBILcy1r'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[225]='C3NvbzZyNXMPABMxLwo3LXYHfC4RJisuEwI1PHYIMTQxFwVyMhAzNDECEzETLhE1ChcrI3YuMBIcDy1zDQ8JLTEQNSsPNQEVAXMBcDY9IxU3JXUWMnIDNTYKN3wxFx0tCxIzNAkSIy0BBwomCjZycQECPS0vLnElMSgjKRISPW8KEClzCDwPEA0INRc1PQ11FHUxMXY2Iyk3JRQWMgcpfHZydyY2DwNrCwASJwgPPTwJEiMoMT1vLDYCIzwLFwodLzUcJQgPCSk1cgEjDwcTfXUXax0yLj0rdCABEDIQPX0LLSkVdRJzJjItMzExfSsuLz1xIXY+MhYTcz0VHDYoEisocn0LPQ4nFHEHfRMPAygBcnIjMCYzKTY+LiYrdTUsDXJ0cg8wNysUAG8t'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[226]='di0RIw8ScjIyBysQC3Jycwg2ASMyIC1wCyg9IzUIEic2EnBzCxcPFTF9ASMREj0jChI3bzUXMCcvPTwmDiU3FSsIdCMULQ01NiY1cgEoMysLPiwWdjwJcA80DXANKDwlCjQPLnY0BiYIdT4WMnMwEg0oATwIDgAdLwA0EjICIxUvLSlvMQ8JLnUlAXIrJTcQDQcRcgsIEhY3ICMuCygxFxwtDyg2PSkwMS0tMSsHLiU2PRMrMnENIzEwMXwUD3R2MSVycTE9AXATcz0XMg8BPDI2dnENAB0yEyhwNDJxCzI1MCtvHAI9KzZ9KzUIKAE2HC0OFjJyMxUrNTFxKxITEA09fHALfTc2CzZwMg8tKTABPiwWDS58Iy89MCYNMDEtNxcPEDQSNy0xLTcp'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[227]='FD5wKAg8BS4TPiVwATABKw0tE3ATBzd1Mi4DLAg2cm8PLnA1CAoSEghyLW8LNWsmMT1vLS9xD3wIcgctdgo3LjICLTENLT0oL3IHFTAmEyt2LT03FDARfA0+NXwREjcVC3JwMjUsCW8xcgt1NBIBdi82cjYLPQdrERABEDcXBXAycnJ1Cz4dawE8CxArFytwMgIDcA4lfCsyKC0uEz58NAtydnIUBwF8EwB8cw4gNhIvLik2HA8TKysKKzEyfRMrLwgsHRMIKXU1B2sdDXMvcjVyDS4rNA0sNg4NMjIoMywLcj18AS0oJStybyM1LSs8DyZ2cTImLykIPjNydnMDEDFyA3UKHg4mHAgvcw0ocjUPEAIdDS1wNHZ1MykvADExEhczFQooE3UPADEV'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[228]='Ni0zIxEXfDQSEC08CAceFg11Ky0NBg88CRcPfTEAEzUyMAMyDX0BKy9yAy01B3IxHAIRKQ11MXwTBz08CRIrLjJ9NTwPJjNwdgYFczYlCy43ECs3DxJwKTYCcCM2LnA8CxAlfA0CPiU0Fgs1dBI1PDFyE3V2BxF2Mj4dNwoQMWsLNQ0sDXJ2KA8OCS41NXcdCyZ8KTV1EzwNPiMtDy0Nay8ocnMOFwssLwh1ISs9fCw1EDUydj1rJQsoPXMxLBQdMnIuJgE2KSMPByssDSYDbzZ9A2s3F3xyDT0eFggGBXINPTAWNxcjKAEsDWt1JRFxEwcCFhMtLSsRJTFydi4dLgEIMXEKLnx1ATUrcQ1zL3MJJiMyLz0DczcmATccDzwlCH0SITYwN3wxPQMj'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[229]='Mj0zcCsXI3MJFywWDhAtdTF9A2s2PnItdBYPKDYPbzA3IBF1Kw8JLhR1E2sNDykjMjUvLQ8PcnUBfQIWNghvbzFxDS4vcyl9CD4TLjYgNCcxBgVvMjYjdi82ETEBPA9zE30jPDYGCTQxLhN9MjUPfAE+PCc1F3MWMXELNRQwMTcULAYhK3MzNw0PcjYULTM3DjVxJQklKy0OLSoSAS4DLDY1ciw2EB1vL3MuHQECNh02PjUjdgARdjEWBzcPLQNzDShyEHUmcm8rPilwEhBvcAE2PRAJJjEtEiA1FQ08D2s0JS1vCAIrczcmAW8KLA4mMTwPcA9yIzExJS0wAX0tIw4lcDYTLS0yCHIHKy8+KzcSECVzCwA9NytzLxd1FgsrEzQJcjY+EXUUNgMX'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[230]='MTV0KBRyBxcLEgErKx4PFTYtB3MBBzN2NjAtNDUlDy0SF3IQFAguHTAlLzQxAC91ChdrEg81BS0rNA1rdCYDNi82KRcKHgUxNQcBcBQ9fDwyAHA3MQAdMQtydnAyEi11NTUHfTcXcBAPNAcjKyAtFw89LXExBwsXEzYBdXY+cxYPKAMtAS00HTIOBiEIBgAmLy0lfXY1cyYrJi4WdjUMHTYQHXYcLgwmCHN8Ky8wMTEILRE8NXUjEBwAASwvciktLzZwNhRyPhIyDgYlDy18LjEuMh0vcxEQNSgBbwtzMxALEHI3CAhyIxM2LSsvPQctMj4pLhM+NzYICC9ydBIMEg0OCSwLcy0tEy4cJTY0BhYUPXAXNnNwdTYKMX01dSsVDhI9Iw4tcSU3Fy0y'
+do _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM=T or 455 end
+if oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa then oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=9 end
+do local _=650 end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[231]='NjUDMTQlIzQ1fS02Ly0LfTUHNB0KKAFxL302JgsHE3B0JTQlHDYRKC8AIzYTBzE2DyUtbzYtKXUJJjcoChA2FgEHHRU2PS1yKyYTcgFyMRV2Dg4hMgIrMnYHNzR2Dg8VKzV8EDQldi0LECkoKw4JNTEgNxc1PTAdCR4HcA4XK283EhNrMQd8MTFyB281PRMXKxBwKHQSETITfSssKw8HdSsQL291Jj0QKz4Baw41BicyPSUxK3ENaw0sCRUNFx4dChcpIysXayU2NhNzNi43KC8tLxcvACs8Kw4KEisPfCk2LTUuNTwLNS89HTcPADcQHCg1N3UXDCYxBwAldi4qHTE+NW92CjQlK3MDKC8INy0IDwtxDRI1LBwPM3Y3Ei1rDi4pdQolKxcxLTwl'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[232]='CwYHK3ZyMWsyJi8oEzwLLQg1MTQyLT03AT0RIzVyMB01c3JzNi0BKQsQKzUNEnESNXMvFQF1cDYwJhNwMShyKzEHLSMTAisrCjVwNQsWCzEPLW8wdRITc3Y+PWs1AjVrdjA3Ni9yb28LACs0FA83cQgCKyMKNWsWdRctMAsAE2svPj01MgISEityChY2JSwnNg90PAgCMyMRFwoSEwIzKDU9KCEyCC8sKyUJLjIPD3wvdSMVAS0BPAouLXINEi01DXEAJisQPSsNJi8oNS0NdjcQI2syHgomKyA1NHQgLTcJJXRzCC5vEDUCExA2cncdEiZvcAs+ASg2dXEnNigzMQ8SESMPcisyCw92IxMCMzwIBxMtNhd8NDEIKh0LIC0oKxcPLDIlDXAydTUX'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[233]='NxAzLRM1MBYSJRMXDyADLnUSKy0LFzIdDhdycA41IykSFw9zMQAzMjAlC3APAAFrEz01cg0HMSwwJQtwAS4RNAkXN3EcLXBvNRBzFhISAzY2Ei19CDUwJQs0Bzc1LgEpMi0PchIQfRJ2CD11dSVyLA4wLS4TdXEmFA8tLTEeBRUrEAM1HAATcwkQM3YxFg08CRAcHTEHEygRJXIrK3J2NQ0mAiY2CCkxDyYvNg4wIyw2cnEhNnIDMhMKLTF2AG8tKwdyIwFzIzINJTM8MSZvFQsIAzUxDg0rLy4eFhRzdDQPLj0yMRBvIxNyEhJ2CDd8AQ4PcgFxCXABCi0wDXM1dQsmDBIrPT1zdRYNbxIeCXN2B3xxCiwJNC9yLTwvBwcXNhc+JQFyb3I2EDMr'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[234]='Ky4pNXUWBXIvfQN9NT0FcwsIcGs1JQAmEzU1cBMCPTY1NhFxNiY9fDEQN3Y3Hgt8Lw91Jw0XMTwUPRNxNyA3czEtDzYcNgEoCjUrMjQXKTUvPQs0NB4Lci9yCCUyKDdrNQo1NTIlPBIPLQ0QNxA3cwoQHW8cDzctNSYTLQE+cisKEgNxDjUrKTI1C3ExFw0jMQAsHQ0WDzUIPSt1MhAlMg0+KX0rNXQtCiVvKDYlcSc1JQ8wMi4jKHUQIzIBPQ0pFAgvawFzNXMTfRF1NgoTdSsmLCYTBzF1DiU9MAsIdSEJEHEmdRIDfDV9K3MILAUsKwgvLXYAbzQ3JTYlEy4tby8AK28JEnJ1NQocEhR1PhYcNj1zCwg3dTIlcjErdTEyK3IBNQolK3AUDwYm'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[235]='NnMtLjUXLXM2NQMtD3IFMTAXKSMOHg4nDxIuEjIPNCYPBg8wdg8zbwg1PiU2KDYmDXIjaw4SMXV1JQksdigrcCs2ARUNLS0XDz4dMTYHPSMKJQgSNSwFKy91PTA1LTEjK3ItMAFzKXUrdTMQCzwNFzZ9AS4JHgYmKzY8ITYKMCc1PQk1L3INfA4sCSMLCBM3DwAdFxQ9HS4yLiUwDz58cQE2KTUvPQtzMj4pMg8tMywcKANrMj0IJg4lCTQ1LA0rCAoTNiswNxcTLBQdCy0IFnZ1NhIIABM3ERYJcQ0uLzYUAnMSDR4NazU9CTYUBzImDRc2JXUXAhIrCjUwCyUjMhNycxYvLAlyCz4mHQkSM2sIcnZrCjYvFXUWBzQBLRImNjURNjEuERcNcgFy'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[236]='NTUpcHY2KXILcjU2DQ8qJQkQLTI2JRIlEwcTLDY1dHY2EgNvFCgRMXY8CzwOIBEVCxdwcwEoMSMUci1rMXUzNHQgExUrcjAnDiVyKxwtNzccLSMxdBd8NTEQfHwTMBwlDxcPLg1yLzUyJnQXDzV0MgE2I281JjFzDwIsJxMtcHEKIAEXFAocHQ0tMXULHgU0NTUSJQowLSgvAnA0DSg3axMIfC4KLStvATwJcgE2AzUNdQM2Dw4JLA0QHRUSJj0xAQdvMTU0D3E2Pm8oKz41Iw91Mzd2DysoCi41cjU+LRUOLn0ndjUBNhEXBRd2DgU1Lw90Li82KS4yDwtwCxA1FQ81DRU1EHxvDjQJFTECAXA1JRFxK3MBbwsQAW8vAgMuFDU1LA99KzINAnAj'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[237]='L3ItMg4uM3Yvczc8Dw8NazECASMTAjMVDwoTcQ4oAzUPPA08NBYPNwsCEiUSEAEuFD58Fwg0DSl1Ej01Dy0BawEPETQcMCMrCiZ9IRwucCsTNQVrEhICHRM0ByMLCC4SEhcPLTEoLhYNIAMyMj40ITItHTw2LAVzC3EFPA0mN3ASJjcXMi4dchQGCiEPEC8jMgg3dhQKEWsOJi9wLy4xMhESMBY2DzdvFA8rPDEHKTAKLh1yD3M0IS8sD290JRMxMS42HXYILysrMDIlLygRMQotb3AvLSV9CD43MQ0HC3wNDysVFHIxPA8lL3IBCgM1K3NyFQ8ALXUPBg98DQ8TNBEQNzQIKBMjNxIsEg0uNzYvcjc8DyVwMQomKCU1CDFxCHVxJggtNS4Ic28w'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[238]='Lz4qJjUPPS4NPTwlEy0rNisAEy0TPW88MnMjFSt1IzYLNTQSERBxEnQXC3ILFx0QHC0SJjIuAXYcBwMVNgI1cDQmcmsPACU1EygRMQ0PC2scNiwlFHN2NQE9cHAxAAEtCw8rFTE0DXUNJS80Mgdvby8GCTwUDwtrL3ENfC9yLzF0FxEsERIzFzU9PS0yPQwlMBdwNCtxByMLJQt8Ewc1cgh9IxcxcnwXFAcrFTYlCS4NJmsSFAAjFyslKS0IdTc2DiYpfBR1MCU2JiwhKwgpMQ91AxAKKANydRAjMQ8CcDQOIDdzLz4RKQsXBSkUNTF9CiZ3EhN1PCEULiglMhJwLg41A3MrPi0XdgA1MDUQJh0IAi1vDi4DdQ8QPRULBgAdCy0LPDYgN3wPNXAs'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[239]='Ng98bzYGBRALEDEyHDYTbzEtHTwcAANzMg89NhwINTwyEgwSMnUtfQgPKXEUNiwmCiZ0IytyN28rMCwSHAcLKAomLxARHg8sNnMjcDQlD28OF3xwMBdvMXY9ERcNNW8tD3IRLQt1cnMTdRM8NjQFPCtycCwxNS0oDTwPEDItATUrLSN2MhBvay8ILXASJnJ1FHNwcAFzLxcNDytyNh4NdQoXLzwPPT02DQYJcgEODzYUDgctCAcHbwo2NTcJEDE1ATYTLQgIfDITLW8sNTZ9HQoXcjEUD3QQLwA+JXYPcnIJJi03CDU1LjEGDRcBAAIhMggvLTI1BRcKKAMVdnMDLQo2dRIJECM0DRcMFjcmfHM1PgEVNS0HIxEgARULPQ8sdBcvdjYCAxUSJTVy'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[240]='MX0Tcws9AxcPcQU3FHEIHQg9DBYUc28XERdvcw41DBIUBgtxK3MxNwsoAzIvNnZ8NSYBfCs0DzZ0FwcyDTY1cQ4sCywyLjcQATQIEhRyAxAvNnwQEiUDPA4tDXE2KCNxCzA1KAouAhYKICsrDh4LLgEwN3w1CgNyMg9zJi82PX0BLAcyNQoTcgsIcnArJQt1KyAxfTYlNS4BPRQWDyYDLBM9PXATNj0jMQAcFg11NB01LAcQL30jLRMtPXAxEjMxDz0lcA8PKBYUBwodDxcxNA0HI3YKJm9zLzARfDAeC3IvPW8rAQ4HEBwGCCU3JXYyCHIjEDQQcyUrNjUoNxA1cys+JTYPECtvE3J1JQgHfHY2EnIuMQJwcg0APRALKDFyCRcDfDU+PXMOLAsX'
+do T=DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv or 800 end
+do local _={47,95}end
+for _=4,2 do end
+while false do break end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[241]='NQd8NnY+N3MPIC4WEiYpcisPfHMKNTEuNT0LMXQlAh0IfRMuDQ8UFnQeDiYwIDIlLzwHcHYoIzUyKDUVCwB8fHYuERAxLnIuHAIRLTI2LTYULn0nMTAwJwF1M28xJhN9CCgTNjQlcnINPQsQdBcNci8ANTYIABE0K3NvEDU8CzIyKC4dNnIBdTESA30rLjEuNn01bxwPKXAyLTYlDS5vFTUScDURFgl8CDABEAoQK3YJEgFrEwYFdTECAxcIPm8tHAAdcDY0DzcwJhMsDxA3NTIXMSgrEDYWNnJ1HQgtMRcSJQlyMBBwLDYXNzUwJjEVCHUTcCslIzwxPTM1dSU9azY2PXArBw9rDQgBcg0HfHB0Fys3ERctfDEmdHMSJQ4SDQJyN3YAHXUcBwYl'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[242]='NhAvKxMAJXwTdXBvEw4FEBQHciwxPXIjKw81PHQmEiEvNTNyDT0pPBwAKy4UNQtzNQ4JNi81BywxADAWMBcpKDImMCEBDxQmKy4RdjI1KXUIdXAtNS09awgPciwPEjc3CD4rNjAldn11JXZrDS0BLhESMzI0EBFxERABPHYuMRUwFyV8FDUBNTE9CiEOFxF8KxcNdi9zMhIUcnUlMXN2LBQtBXURF3IsFCgCIXUmMXUPJXA2K3EAHTYIMzQrPAk8HCg2EgoXNBYKNQd8Nj4jK3ZzA2sNLSl1DXMBczVyEzQxFwNwDhcrKTI+PS4BCHY1AT5zJQkWBRATAG9xMgB8LnYtBzYyCD0XDQI3ECsoLTENfStrMSUBKxQHDXMcDwcXChcDcRNyLxATLgFy'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[243]='EwATNRNyNXM2ADUwdjQJbzIgLRATPXIyDwcCFjV9MTcPPTQhKygRIw09cjwLPilxdnItNjYCIzcIBxEuDwgpEHUlES4NCDcydBYPcQoXAS0rPQFwLy4dK3Ulci42cyNzCDUTcxQCA3IxDw80Kw8rPDEtNTABNBQWNRcDNjAlDTU1PAcQNiV2KAEPLzw2AgFvMhItPA0XcCwPLgM0NX0xMXQQExAxJjQdMSg3FTYtAS0vPT1yNXIFFzYlERcBMBE0NgcCHTYtFBYyNXZxNSY9NDUeDygycm8VLzwNFTYQETcLD28xNT0LMAEtfBUxci11KxAvMTY9AXEIPA99KzQHLHZxDzQBBg00AQ9yMTY0ACYILj1xK3UBdjIALCEBCi0rHA8TLgs+ASl0JhMt'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[244]='ATVwcBMuNiYPIDV1FAcjNjYoNXwPAhMyEwJxJw0AayYrFzEQCwYNNjICK3YcBwAmNX0BFTUoMxB1JXEnDyArcgsILXAvDwUpFAcdLBEmcjIvDw83KwYGJgowIzR1ICwWMghyNA0oMS0yPhMuL3I1awkSNXB2dRM8DX0RFxMoMzQvKAE3MXIrFRQoAXY2PXEWDS43LTUuLXEcAnEmLw8+EgsHE3wLACspFAIsJw8ODhZ1EBIWdi09MgE0BSMLMDQWCyVwcC9zaxY3EgMVEwI8Fgh1LSsPBwcyNgA1LgolPTcrcz4WCy0zNisHfC0Ucz0wCwg3NTJyPXMBc3wpdnU1chwwMTUIAnJxCHEKJzUPAS50IDdrLwYFfHQmchc1NA0yNjUPFQooPTwUBwF8'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[245]='ChYFIw4mN3wxMBEjKzQFMg11AW8TfRF1Lz0TcjQXMXAILjM2CyZyNhR9E3wNCCkjFAB9IRQIIy0vKHEhdBITLRw0Bh01MAMXdnUxMgFyNiULNhMtCC0RKw0+HSMrPSU1FCgTaw0IMCErIAEVMQcRcAEKAy4OMC18Kz1wcw0WBTExICsjHAcOHRRyfHIvDwMjEwYNcjJ1ETYxPm8XLz4DfQs1CSgPPjdvdBADNjI2cHJ2CDNwCz5xJS82Ly0vD3YjMS0LMDY2ASgPJSktCRIRdjAQcSETNnx1EhcKJgsoLCEyCiwSKw9xJRMtA282HgdvCzUFNhw0BxcvKDwhFCgwJwsoPS4ILnApChAlNgstJSMPDzFxNXUBKHUmcnAPLiUyDSA1MSsHIysRFg82'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[246]='Kx4PKzcQb3wBBxQddSUvMS8+E3ENNQ4nMi0pMTJyby43Ji0wDiZ1JS89K3YPAj03NBAzKTAlDTEycgYmFC0tMi82EiYUCH0mMhAzKwkmIykNEC0VAQcBKzAgAWsKEj0sMXIrKAomIysLADVxASwGEjUmMy43Ei4SKy01FStyfBU2PA0rEy4tMRQPfDIKNRMsERJyNjcgMRUUMDV1D3IFKQgoPSgyKCN1KyYTfQF9NRUPDzMxCjY9bw8HfG8TAis8dCUSHS8tJW8Tc30dDw8HPBQ9C3ErNgFyNRA9cjAXDTw1NA4dCwcvbzUPB302Ji8yLy4pNgE8DxABBwAdK3MCJw0wI3V2AH0hMBBvIy89PCYcACkjCHMDcDEQJTA2fS4mEhdwcDE1dRYBLAAd'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[247]='Cy4rczU+JRU2ACkrDi0days1dR0LcQVxK3MtKDV9LX0LEHAjDhB8LQ8KNCE3JQgdMXMzKQ0GCzQyNXBwDxJycRwHNRU1cz1xKyUHLTE1cnUNPjFxEwARcDYtcmsrNQ8sFAItfXYOBhYrAhEXASwLIw8lHCYTBwt8ChdvMTYPMxAcNTcrAT0PNjYgDBIxLXwjCAg1MDVyCSsxLnJyNTArLQ11cjENNA8xNnMjLAsub3B2LhInDT58LBIXLX00JgFvMXILbwsIax01EB0VdjUoJzVxDWt1JTwmDS4jNRMHDysRHg18DwIrIzEPPBYOEnJ8NRATNQ00BzwLF3wpDTUyJgEIKSM1B3wtDwApazIoLS4KLh0xMghyMjYXbzA1cwFvMjUSEg4lLzYTPT0o'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[248]='Nh4GHTESEXMNB3ESATQPKBwOCXAUDxEsCw8pKzEQPTAUcm8XFD1wLDU2MCYxBy0wDQgtcA9ydjIxBz1yD3J2KA8tK3YIDyktNTQNEHYAb28LdQFvNQJyK3UmMTYNHglwNi58LjI+HXA2JRQdNTVyNC8Pb3UIBzM2DTULcgEtfSYrNjFzATYTLnQXLyMvc288NX01cw8SLRcUNik1NiABNzZydi0BCDdxLzY9FS8CMWsycQAlNj0PKBQALywrPQolMi4BLTYXcCswHgstEiUpMQo1fRIINi8tCxIzcTUPLXM2AnAuMQg0FjItL28REC02DiVyMTI1fCs1chEtMgAtNHYPLzYwEitwdgcJdgEINTUyDzMsDxYUFjFyMTEULAk0KwcBczJyDTR1JT0t'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[249]='FC4RdjYHDzQTcxwdERceJys9Ayx2fTcyDzwHNg8WCzAIAj11NhAtN3YuJXENABwldnUrcgseCXAPJhFwFAgDNBQwEicxNjM2Ky1wKDUoMxULBzVrDT4pNBM9DTEOJnEnNgcxci82cyYBcwEQdCUSJismdGsTAANrdCUFdTAgE3E2PT0uLz0dNBQ1E2sBNA18MCY3fBMuPTIIAnAudSAuFitzMykyJn0dNhcrbxwKKzV0IC0wAQI1cQ8WACYyLQtwMSYxfTYmb3EBDw9zdnITNxQ1bzQNDgUtNjULPA8QNzY2D3ZyMS0tfA89BTQKIC0sDwoxMTY9EXYxFgUsMhJxITUuKCUTNRE8MCVvNQE2NysOLhMjMjARdS82NWsvCBN8MRAzcTAlC3EBPi01'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[250]='NxIrIwg2bzAINSNxDTV2bw0CLTUvPAkrChc1EDUmNRcrFz0uASg1PDY2Myh1JXBrKyUTfAo2E3ABLTNrNxYJIwo0DTETLjISDw81awkXNRAydQNzDT0uHSsXLCY3JjN1L30tMDY1DiYyNQYWERc3fA09HTIKEnAtLzYtbzYtJhIIDgYSNjQNKzV1NywyFg03ChcvcjUtE2s2EgN1DShwKCstNTcychFrASg3MS9ycnUxBz0QDigrLhQuMzwyADIlKzUtay8CDCU2JjE3LyhyNDQmMBIyLTcjNXUDEBM1D3AOFzV1dnItcDE+K3N2Dgk2NxItMXYocHMJFyM2MQBydTYOBTUyJTwhNS43NAoSEh02By9xMiYRcxRzfHw2B2sSDXITIxwPLiYOLi9y'
+if DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv then DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=51 end
+do local _={21,24}end
+if DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv~=DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv then else end
+repeat until true
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[251]='FAoRIwseCzQJEDAnMj03dhEWDSgNEB1vLwg9fDUQMhILEC81dg8rNzIGDXYrcwN1DSVxHTIQKXABCDcuDy0vLDZ1KzUBPRQWCC0DNC8HJhJ2ACMVdBcjMTEuHW8INm9yD3MBIzUIdjQ1ACUyFA4JFzE1dhULIDcXLwgzPHQQcHwILSVwDi0xLQsAM3ISHgk0KzY9KzEWCRAxMCwSNj5wMgo1By0JFwdzCDYTNQ81I28rcQctLzUvLQswEXU3Fx08DygxNxRydi41JTMxMXMzKBwCcjANHgc0NiYxMHY8CzARJQM0FD4MJTIoNTUrNhMtdR4JNC99ETwyLTNyNTUTFzIPKTQ3JikyCi1wcAtyKWsUBgc1ChIBPAomLiZ2LT0XMBACFjI9B3ITLXw0'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[252]='Ci49FQEsCXESJnRwC3IqEjEeBWsUPRE2NjYvFw8HNxc0EnBrCy0GFitzdGsxHg0rEzV0NgogAzAPcgUodj41KAgHbzQ1cgodDXUrMQ01LxcvNnwsMigzcw4wIy43EDwnAXIzMg89B3UvACMuNSwLfQg2LCUyDwEoEhYHNRQINS0yJnAoDSgxLjVzcigSJXQsDigsJjUwEXw2czQWLw8UJQ89LTIOJXAQKwgtaw8QKSMvBw4lMQorNy82Ey4SJhE3AS4vcjYlETUKLhEjNBcCJTICARc3IAFyCHMzdjEHJTI2cRQdAXVyLQomKXIOIDFzHC5zEjU9MS4cNAstMi4rKw4ldjIINgwWCSYvawF9IygxFy0yCyUJMQ0HMS0ULAU1NnIPFzYSEy4xNTEt'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[253]='Cx4HbwEHHTwSJRMrdjZvcgtzAzA3Fy08CyY2JTU2K3B2PT0wDjQFKBEXCXUcBgodDz48JgoSExcPNQFwDjU9LTIuExcPNS0uMRA1azAXDTQcD3wxAS0BLhIWDXMyFgkuDQg3FQ81PTw2JRIdNSULIzI9fCs1cjAWNghvNg01E3w1DzdrDzABNTQQKCccABNvAQg1NTI2Iy0NEgN1NBcdcgsQLSMxDy11FC4DKzUPB3Ercgd1Di0AJTE+cSULKAImFA8UJggsDiUvDwIWCwoxNjYeBSkvABEsKyUpfC89cjcrLjEyMX0BKDIWCXI1cyktLwojNis+HiUTAgFzMjYoJwsmDBIOFwktCz4pFzY0CTEvAiMsD30xczY0BxALLREpDy4Rcw0AERV2LXw0'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[254]='CyY9KDEmPhYBNm91AQARLhQCNxU1Fy8uMiVwMi8ILXALNS1rEzQNcBM1MTwJEjUtMnJvFy9zLzIRJnESHC0uJTAQMTANBx0xdSUKEggoNCccLiMXMQ8sFhRzPRcUdTU3DRYNLg4QPS4IcjcXNxIxcTUuE3wxdQMjEhA1fSsAHTQcNRNvMgdzEhwsDy52LA9yEzV1FjIHLTUIPSU0E3ITMjQeBzcSJSs3Dy0jLQEHEhIICDEQMnEGJSsAKxUxEjcVNSULKwolDXU3EjFwHAg0JQguM2scKDd1Dw8+JTEAIzI2Dg1xdBBvPDUlAxcNJnZ8DTV3JhQwLS0BNXYXLy0lMAsSEiEcNjQdFDZ2NQgKAic1FyolMigBb3YoMTUILgEuEh4AJTEPfDQvCjdw'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[255]='Dw93EhR1PS0BPQMQCHEFMg99Iy4xNQEjDT4RaystDTU0JXRvHC0BLAsufCwTCBEtMj4Dbw41dRIcLSN2DwcHLAo1ETIwFxIhNTURcy81AywONjEQDjQPfAhzKXIvcQU2dBApNTUINSgLBgswLy4dKRQGC3A0JXRvERArcgsSNSM1NgMVNCYTNzIXNTIxDwcydj02JgEIdi12Pn0dFDV8KHYGBW8BPQ1wMTZrFg89Dy0NCG83FAoRczE+KzwyJnB1DTV2NTItMXUSJRM0DQIzcjUuA2sPJj0uDjYDMQgAcR0PLSM2HCgxFTUQcC4KNTEVMj4xKw0PdCw0ICNxNSU1dRRzdyY1dSsyNhI1cDUgA3wUdTwnNj0rLg0gEzc1EnJzdgBrHQouMSwKKCMy'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[256]='KxYPcAoXC3MrNnA8ESV2cg41KXUPCi0wMj4RfBwPKzY2AAEQCHMxFzE+KTQPJRNvdBI1NDYPcjQTNnRvLw8Bdg8tKzQBLQcuAQg9MC8tJX0ydXIxMhI0EjcQbzIOLgMyHChwfBQHDzIyLnB2DXMzMQ0Xb3IcD29wMjU1NQFzAy4vPgIlCChydXYOCTIyEisVEwgTPAs+ciMrPXwyCxdvfA8AKXEKNRE8DSwJcjclCXx2CHJ1Nj59HQE9PXABB29yCyU2JhQPMzUSIAEoLzUwEisgI3MyCCstNXIGHQoXC3MwJXwxdjUCITQXHTwIMDAdCiVvb3Y9PSMLHg9xDSASJxRxBTQUMDQSLwIjMTEIATYyPR01DQJwcjYXMzYSJit8FHMRcjcQLRd1EAEp'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[257]='CyUDcjAQPhIULTYdMXN0cxQwNhYPAAM3EhAlNA0ILSgBAgEXL30tNDEQPTQrc3YrCRdwa3QSE282DxN1DhYKEnQlAhYyHg8rMCAxfBwAETIUD3w2DS0DbxEmESMPcnZ8HC0CJw8PDhIRFwwmMBIjchwCAxATDwNvHAIBFTYQfHUUBxFzKwATKwFzEhILCiNrNQcJdQEGB3wIChMtdgAtfTUKNyMvc280djUtFw8eCywvPjcyNSUTazYWBzYKLnwjHAcTcg8PEXEJJTdyMg8NfDJ9NRcvc3x1Ch4GJzAQcHENFzYdNg8tNDU2bzAxAC0wMg8FcQ4XPXArMDVvHCwHLnQXMRcUNnRxCy4zKzUuNS00JXAVAXUtFSsmETQTKDASDwhyLDUGB3E1PiUX'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[258]='DhYNMTQmES42CHBrMCA1KxQPcjErNiNxDxccEgtzfRIxD3Z8EygBMRM2HB0LPnwVCD4qJityPXE2EjModg4IJTYPdSENcg0QLwIrKBQPdC0OEnIQNSARMTQXcSYINT19MS0BdQseCTUrCi1vNTYpFw0sBSsTLQMxMnEHIw0+PX0vDxwmMTZ8fBN9NxAUNj0oDi42HTE0BRB2fQM0FHJ8N3QmEyMUc3cmDSARNSsldBUKEi19Mj4pMTY2AXIvMAFrCwB9JSs+HBYcBz4SMSUBKzIgNy4PCD0VMRcLFyslAzI2CC98MggjNgo1cHYvNXUmDy0RfBEmKXF2LXJwNXIvFzIoA3ELADU3DSUsJzYmdDx2fS0wMgIzazYIfCkrKCs3CwArLDEScGs1B2sl'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[259]='NxApFStzPTI2EAEXChclNXYPIxAPNXElCzUzaw4mNWsvDwNzCzQOJSsQKhI3JRM3MS4tdQ82cjYTcQk3NxAcJRM+JiV1EDc1NTYvchEQETcycykwMS4xfRRzNh0TCCNrNQBwKxESNCUTdXArKyUBdTQQPTF2Lh1zERJwMi8IdnITc3AtFD03EA0WFCYIPRwdDRcSJi81DzAJJRMsDwh0LQg2L3ArNRE0Cwcraw4QHh00ICNyNQg3NRNzLXIPEBE0NT4xMjItCzIONSwnMQAjKA0HCW91JgNrCygRMXQXI28Bci80NBcNLA11PTQLcnIQATYvLSt1NzYLByUQdgdyKw0gIzILLn0WLwISHS9yL3EUAAEQAQh3EgsXcx0yPTASMQc1dQouI2sULQE2'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[260]='NTUrKRImEhJ1EjUoKywOFhNyLCE3Jj0VCy0TcRM1Ph0yNTVvMT0PfQgHLiUUciM1NxI2JQ8PM2srAhMuMTAcEg0wEXUPFyV9AQ8Fcg19EiUUByU0ChI0JhEQEzIOHg1rKxB9JjUwNzwJJQolMT01MQ81LX0cD3QQMi0BNityIy4IcncWNgoBcg0PKRV2AgF1NTY+JgEAJSsPEH0lAS4jLAsXBxcPEHwyHAoRcA0mbyMJEjd8DQItMDcXHBINdTVzFAITFzcmPCEcLQAdCywJbxRyNSwLKC19Dygxc3YAfCkKLhFwNg8sHTAgN2sycwF1MXMtNzEPKXwLHgonMhARcA8+Ly0xNighCi09Mgh1ARcxdXI2DzYTNRwPcmsyczN1MiwIJRNyKy11JQYl'
+while false do break end
+do local _={33,16}end
+while false do break end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[261]='NgoRNAg1M282LjMtKw8rLHZ1DB0rNjYWMRI3fBQ9DzAUNQc2Mi0LMi8sCWsIPAUpCDQFLRMIcHAINiktdCUtPAsmcC4KNTF8Ez0JPHYtAXwILA1rLwhwdRIQcDUNPTN2Kwc9fA82KzwKKCtrMnMDaw8tPXIIDgUVCw4LIzUtAiUIPTM3HAcvcisWDzYNAi0xKwcmHRImdnUPPS1zNj0rLDFyMX0vPAgSCwczbxMGBSwLczcpFD1vNAE1I3ELdTQWCwoxEDUlM282PhE8MhcsHQ0KDB0BD299KwIuEgs+LTR2LgMjFHIjNQsWCRcrAnIrdj0wJQgPbzQTNnIyNXVyfSs9Mh0vNQUoESULKwkQM3wPLQUoEw8DLSsAby01LTE1Ez0xLjYKNzV2PhF1'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[262]='CAISFgEPLzcILTF1MT0jLA8AKRB1Jj11Mgd8LnQeDhIxJncddjU9Ky8+ESgUDwV2Cz0lEDcgETYNPXEWKzVvcw40CSgTAjdvNggrFTUHPSsrDwgWHDUPMBRyMiUPPjUjdi4TNC9yC3INHg1wLygRLjE9IxcKLSwSDiwUHTUeBSkIB3w3HAd8cjIXAXM1BgdwMnItNRQ+LxcTNnEdMi1vazY2djYxPQMyDzU9KCsQAyt2LS8oCjUPMnZzATc2D283Mj5wcA1yKS0rJgFzDy4RMjICcig1LQkxEz4xNws8CXYyEgEoFD4tfQsWD3IrJjE2NXMpNhQ+NXAwEjYdDTYzb3USEXYUAjNyNXI2JhImciMTLQM1Nn0yEgsAASMBNWsdMigRMgtzfCwPPis3'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[263]='dRA+Fgh1AS4vPQExNQ90LTU1cDY2ECwdDz43KTYAMTENACU1NiZ8FQgwNysNNQ0uMS1wFw0CN3IULjASNXNrFjIIAWsNMBEVDSYSITY1fRIREj19Mj4RFxR1MXwKFyYWMjwPMTAXEXJ2LR4mFD5yLTU2NyMJJigdLwgsJgt1cBcyPhNzKzU8FgkSLW8OLA0yEw8FczEgNy0xJXMWdCY0JgtzNTQIPQgdDTQLcAs+cDcNNnwjCwc8EisoATwLMCMXLz0pMjI2AzQKLQUsDRI9FwooLX0wHgYlMR4HfTYsCXMILnAQAT4qHXY9KS0vPQ81CigxPBQ2KRc2cykuNRdwNRIgE3Uvcj0yDi41LHYKKxA1NnI3Ey1vMQg+AzR2cnJzMBIrKwEoM3EcB3Iy'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[264]='dgBvNSstPCExCC8sCwA2HTUuHiEIAjAnD3Vwdhw1D3IIdTUXNxcjazY9ARAIAHApNQ8xfDUgAXMxNAV8FA8HNTFzKB02NSt1AS5wbxM8CTQKKCsXEwdrHQ4tK2s1CiwmdRI+JnYwNCYLCHB1Mj0AJhwIA3UcAHwtCxc8Fhw1DRcPNQ9rCH0DLRM1LzQLLQl8DQg1cgkXHCYyci8xdjAxNDE0FBI3JQ11FDURKQ4eCyMxLXAuAXU1ci8wETwBLAUjDwgsJTUQKTcvKCNvKzZ0Fw1zdjQcAnBxCw8CHQsQNzQ2ChISMSZxEis9L3ALKHEhDwJyazE1NTYPCjUQKw8jcRQ1DSgLCHApMjYTfQ0uKy4LCBN1NxcpLQgCMB0LAjdwC3IRNA4ucxIcAjc1'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[265]='Mi0lI3QlPXMcBy1xMgdxJgE+KTAcDylvDhAqFgkQEXwrEjUjNCYuJhQtHB11Fw9rNgoBPDQlB2sTcy9yEhcrKBEgN3YxPAUoNXIvKDQQAXYTLm88EwgrMjE2AyMyJRMyMg89LgkSMxUcLTYmCA4JKQogK3EyPRQlNhAtcg0tCxA2Li0yDwAjdTEXMysyNXRvDXI3LAsPPSs2cz4dDiYRcwE0FBJ2cj03NgcrNHY9MiUPBwEyNjU3FxwALB12LRQSKygxKzYODzU1fRFrMQ8xKAs1BzwNCHxxCSA2EjFzEXMINAtyDhYNNTEmNWsrAAE0Kw80Eg4WBxcIPgEpFAh9HTEQLyN1JQEQCwAsHQgGBTE2EDU8dCYRcghyb3B2c28QCC00EjIIcjI2LjM8'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[266]='Cwh3JjYuK2s1EDNxLw8BFwoQMyMSF3wtCHMoFjFyLysrfTVzKyYDLjUlB30BPW8rEhIDMi8IARc0JXUnNQArLQ8APS4NAHx2AT48Jw0lAXUxBgU2Cz4RcHQmNXAUBz4dCSV1FjYPPW91FzYlCAotMTI9AzELEjUjdg8tNCtyLRcULQE8MQ8pcREXcDUSFwYdCD0vMgo1dGt0JXw8MjARMSsQPXB0JQgmAS0JKTcmby0cBhQdEygwHQsHKXwIDzMsMnIFNnY9BzY1AgMoLwh2dSslKRUPAj4WMBARPAs1LXM2ci0tNxc1fTYIL3IvCCspMTUPMSs1DhYTdQN1EywFfDU0DXAxcwM2AQgtMA4ocCw1LQNyDy0RPAgHMTIPCis1Ey0tfDECEiUPcjUo'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[267]='dRITNjEoPTU2AjNyNCUTNisCLh0PcnQuDw4FLjEHCiUxDwdxCHIrdTV9Ey4UdQN9NjVwdQ4SNBIREDV9DyhyLDAQIxcPcgs3AXN2EAkSN3AvNW9wHDUJPC80C28vMDQWMj0rKy8CETIrAgIhNgcsJQ0uJiULNTwWCw4PdQFxCCUxNAV2MBITEA02ExAyHgs0NRcKEi9yNBJ2LgNzNCURKTAmMy0yBgUxMQ90LDE+PCUINS1rFAhvFTASE3F2dQFxNXU1FRMoPSs1MDd8NyZ1EjcmE3ELLXAsAQ93HRR1ETIBdSs1FAgBKRwHfSUrJXY0EwAzFQgODSsIdRN1dgh0Fw09DRV2cQgSAQ8pcDIAbxcxJTdzMRcvczYKNiV2PilzMhAxLBQKNTAUPiwn'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[268]='KxcCJTcmKXM2EhInLz49LQ8OBzF2LA0pAQJwazE1cG81FwEoLygrcAs9MiUPD3QxL3M0JQsHCTIcNAgSdgcBLHUeCBYyLgFzNgc1dTUlcx0PEnA0NQAda3Y0CBYIAnI2FCgCJw8XJXUIdSNvdi4jLQ02cmsPcgsuHC0DbxwwMTwOEgE2FA9wbws2L3McBys3DRA0HQEwIzINLQlxDQh1FghyARcNCjE8CyhycTElD28NLTN8NXIuFjYtNzU2Fw83DTYxNjAQfHwBcglwKx4LdRwHETwLAjM1CjABcBQIAS0yAgImCjZ2LnQlcig1fTE1CyUSJTJ9Nh10IBN1EzZ0cjAgAS4vNTAmdi0DdTYSARcOJQcXCSYRdTEQPCUIdXIVAQcDMDcmKxUcMDYd'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[269]='DQBwMTEAE3AyMCMXdj0eHQ02N3EydRM8EiAjEA42ayYTfS0VHDQOJTQlCSh0EDM2NTwHFysIESMvLAs0DhcFcXUgEW8yczM3ATATMTUPfC42NQInMQIDcDcSPTIUcjM8MnIDPA82KhYyLSYmEhAjFwoXHB0xDzFxNj0FdTY+Jh0IPQM1FAg3azUtLRALJT1xMSZwIwgoExUxKCM2HAAzcAE8D3U2fS1wLzVxJTVyCzcyBzdyDzQPbw8WDXMycj19DSwHNw11N3APJXIyKwg3NTEXNTQPNXR1DwhyPBQ1dn0BAB4nESA0JTUtby0RFzUwESV8cRQHHXIIAC9zDhIDLggAE3MycjUoCD1ycQotC30ULj08Kw8JMRMuJWsNAjE2Ew98fHQWBRc1EBId'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[270]='Cz4rLTEsBicyIDcsFHMDFSs8CiExNA8QKy09Ni8HCCY0EjFwNT18MisoK3IJJXJ9EwoBLgEKMSs1cnYyFA92cxEgI3YvPQwmD30RNQ8IbzEycm8XMTUPMA0tayYyJSs2CxAuFnY9HTx2MCwlAQIRLTAQMS4rKDMsEz0tcDASEWsUPQlwNnMpawomKywvBgtvKy4rMQ8SMyMPczcxDSgtKzASNiU1NnAXCy4pcjEQNXUTCG98digTLnYKNxcxdQN1EwgvdjYoMSMcLXEldCZ0NTQXBRU3JQl2KwdyNTEODicIByV9FAIrdREXMiV2MCMxDiUNc3Y2NTAvLR0rMjYoFg01KSs3JS0VMX0SFgtyDXUTDwonFC0RcHQXLBYLED0jCxAtIw4lDBZ2MDUw'
+do DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv or 170 end
+if _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM then DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=82 end
+pcall(function()end)
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[271]='AQAxFy8AcSYycgYdEwgDKDQXMxULHgAWdCZ9FgEPEiE3FwE8MTUHLDIHL28KLTwmNyUFfA0CI3YycgdrCiATMgEILSMvNgF8NB4JcBMAby0TPjYdMQAxPCsCM3UrPnw3MihzEi8oPCU0EB08FAApNDIPcCMBAiM3HAIBdgkgMhYxdT1yDQczMRwwLhY1Pi88MRAzNTU1K28LEjISNjUJMTJ1KzYrCH0lAQABEBw2KywIBgUtdnIMHRM+byM2PS1zD3U9LA89D3AcAC1ydn0TN3QXCCV1EAEtMT0lMnYuPB0xNXEhKxcxcxM1dDIxcQlxNxJyMg4QNysNcyNzLzZvby9yNysrcgM1DxdvLAEwIy42JnElDwI9aw0PLBY1LA9yMBczLg0uN2swJisr'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[272]='CCgtMjEXDywxFgodFHU1Li99LTcxMDdrdi1wIxw2NzYBNXY0Lz5wMTVycRI1cioWHC1yNwE1dGs2LTdzCRAoIQgKLRU2ABFyCjArfA8oAzA1dT00KwAwJzYlBXULLWsmDXMcJTEXAxcBPRN8NBADfTUALxUvcgU3DzQNLDcQKX0LJQ81MXM2JjEPdnM0Fw8XNCVwfAEILXMUBgs3LwgvNTEmcm8ycjdrMTY3MTVyNX0SICM2Ci0NKQ0KMTYyLW9vLwgtFXYtNywNDxIdMj0FMTU9CW8SEDFzdCZvEBMPBRAKEDExAQoDLQ11K3A1cylxKxcHfQ4ocBUNAC92Ewc+HXQlIy4NEjN1Di0xLQ8XHTJ1JnQoK3IPci8CcHU0Fy9wMhA1NxQ9NxA1PnA8'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[273]='NghycysXE3V2NA11CzUJdjclKWt2ADVxC3ItcxElAWsTchFxERYKJjUuHSkTNjNxMi4vMQ0uNyMvcn0dFHJvcggtCiU2Fg9zLzQPNRQsBRd2NnIXEw8xcgsXbzcNPAcyNhApaxEQPS0KJnZyMT40ITElA3MTNA08NyUHNRR1Ey4yEjAlNjwFawsPE30yHgt8MjUyJg4wN2sxFy0wCi01cy8CchUwIDEtCRI1fA4gEysNdRMxChA1EC91NTENJiwmCjUvNwEPA3UIDxFrCHN0MXZxCXETLQ08MggDdQt1cnIPNTISAT0DMXQXcjcrFzEtCzVvNSsWCiYyLQtwdCAtKxQ9fGsxD3Q8CAcRLgt9ETcBdTc1Ni4sITYPAyMwJnIXMnI1MhNzdHwLdSN8'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[274]='DzZ0EA8CcC42Nj08NB4LcTU+HicNBws3AT0mJgotKzx2CgFzCSAxNAhycHUcNQ0tCxcLdTYWCxd1EB11MTUpNSsHCy4LJQ8rMnIPLXYtJTABNXMlCA8xazItb2srJXIxNBAoJStzcC4rJXwrFAIxNAogEXARJhEVDQcOEislDCYULA0pMihxJg8IMiYKMBFyNgByLQsSHCUPACN2KwgpN3YIMykBCHQ0MgczczU9cjIyc3xzDxYLNTIKNXETLTYlMRAcHQ09cSUPAhMxNnU1NXY1Czwrc3xrdgArbw9yCSgrcQUuHDU1cg8HCB0cAjEsD30DLA91Ay42PnEnKwApfTEQcnUTBz0sKwhvfHYoMyMxPm8jMj0zKA4mdCkUPTEtEy01awE1AiYrFx1z'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[275]='NnJwMhIQHiYNNQkyCw81Kw8XbzYcDgoWDy01LDIwESkTLh0VMXMrEDIPci02EDF1AQARNQsXLysUPm80DQ8xKxwoNy0TLXxwCjYTbwsQJTYTfTEtDi4vNg0QAhYrczE3MjARIxIlNy4BMDQhFDUPaw91PhYPPXxwFAgxFxM8BxUNPhFzMi1zFnUQPTwRJncldBI9cwg+AiELECU2MhB8by8ucxYUNQ12KxIREDI0DWsyFg83dgIDNDICIzENdSN1KwhyNzIAA3IycwIdC3VyLAo1ESsvKC1vdgI0IQ0tMTYPF3MdC3URPDYAcjAvChMoLwAlcTIsDzIvLTUVK3NzJQEoPXEUKCtrCRcoEgEHMzwcBzEoCxAtKA4tNhYIBgUtC3JyfTEoA30TPStr'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[276]='AQYFNTU1dyYwECUVKwhyKAs9fCs2Ni0yE3NydQ01NywIACUQEz4RcA11NzwxcisQdRcLMnYIE30IcxEpEhcPKDEIAXM2AjIdNXI1EDFzNzE1JSsXFA8FPAgwARUrDgcoNjADFzJxC28NcighNjVvfREScmscNiN8CSUBFw0IMSgUc3w1Lz4vMXYCPTYPAnBwdi4+HTE1MB02ADE8CyVrJhN1ASg0IDdvCSAxPDYHBXMLcQVxNj4dfBRyayULLSkjL3NxFjJ1PXE2LREVNRItEHUmfSUyczU8dBA0JQ0KNhIxczcXLy4tFzJyPTAxAhE3FDUBLjI1PCYTPTEwESUpay8AcBUyDyomNXNwKTQSPXUwIDQSCxA3NQsHcSYPc3RvEwcjMS8+KTALdS08'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[277]='NQ8vPDIwMhY1JjNzFHJ2Fw8QcjwIB299LzYuEjclcjYyBzUVCRdyIy91KxcrdTQWNS0vIw0uAzUKFgc2CDZ0dgg9bxAKMDcuFDZyNXZxDzQUcy03dBdvfAsIAXV2c3wXEiUPLjU+cR0RJQcQCi1yNDEwMXErJTcjDX0tMA89JRANIBE3djQFazICExAPEAM0NhAvMREQNTR1FwFzCD0TFS9zPB0BNjYmEz4RFTI9CXwcLTwhKxAjays9BiYcNXclNyYRKAkgN3URHgk0CC4xbzY8B301ACtzCD4rLTUQA3ULBzwnEwBvMDIPLxAPJXwpNCVvFRImLTYNBzU1NTYuJQFzcSYvPAUtMjYRcwosC3ULD3AxATwHFxw1LhI1PgImAT0tNzYHHRcrF3B1'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[278]='Dy18Li8ucnUOEisQLzA1PC9yN3UILm9xDzAcJTJzcCkvCjEXEzU3PBRyA3AIMDV8Mj4oJxMoETIUKDEsEzZwFRwAHSMcADISCSUpECs+MhINEC9zNBI3cjYXKTwyAD4mMTZyMBwtLXV1FgtvCjULFTYQPW8NfStwFHIzMi8sC312cnBrNXMcFi89fC4PDzN1EzUPIw1yMBIwJjNrMhc9czYXCXAxNS4SNQ8HNQ4tcDQ2PT0rMhcTMDEIA28ONilwDzAjNzIIdBUBcg0pHAcHLhMtKXEILikxAS0FKwhzDCYTCDctFHM+FgklDTQyPjFvMQd8FzAXcDYvCjEtMnNybwslPW8UBzEXdg89dTU2M3A0FyV8CjVwNBQCA3x1JXZ8CC0BcS8wNS0rEHI2'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[279]='Ni0LKHYPHB01Fx4mCAAxawgtCzd2PXB1NxAlcjYlMTwPIC4mFAgxPAgucRI3Fgk1NQ4LMBEQATUKJmsSHAIBMRIQEhY0FxInKxJzJTI2KRA1Dy0uFAgTKwo1AB0IPAgmNCUFchIeBSg1KC0XCwYNLDE1NW8rcy8yCDYjdQkSMhY2PisuNyZvMDYlMTcPNSsXCAorazY0BzU1cj1zDwIDNjE9JhYrDw8XDyUBdis1A28Ic3Q0KyZ0KBQAcBAxPXBwKyg1c3QeCCYrEnBxDhYFawolDS4yBwUpMRATcg8+EhYBNS8yFDADcDUALy0NPAsVdBcUJQ4eCy4SEAE3Ni4lchQ2cjQUcnRwNyAxNRQCLW8ILnAXFD43ECtyNxAwHgUXDQ89NDUtEXUvPiN2'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[280]='DhcHfQE9DzQwJj4WEw8tfBM1LywTcgwSDh4NKw4QL3ERJQ4Sdj4MJjYXDyscLjQdNgI9KwsmbzcxCHx8di0TMQ0QLh0rEj0uCAYNNhQuEW82cy02dgg3KAswI3ANADNvNiZ0cQguMxAUcmsWCyUvLBMHbxANJQEQdRc3EHY1DyMcCC9wDyUtaws1KTErHg4lNhYPEA4ufSYPEDEQKwADcRMIcis2EDM8DXIHPDY+KSt2KAF2CRdvIwg2AXUrMDEXMRAjcC8OCSwcNA83NxAlMnY2chcPNTc1DRA0IQogN3MBPSU8dRYHazAeDTQxcy8uEhcDKw09AiUOJiMpNXNwIw8gKzU1BwE2MTU3MhMHB3AwJgwSCyV0ay8+JXIrACUxNBA1NXUlEicrF3AX'
+if DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv~=T then else end
+do local _={26,49}end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[281]='L3EPNDU2NygxIBN9EygtcwE9bzQUNA8sCAg3NQ89LXMyNQcQCxcLMDEQJXEOLSUyEwcDNA8eDxUTBwInNSYRNg8lDh0IPTN8NRITcg0tEXIPEjQnEiVvfA8+Lzw2FzdzDy0xFXYHLykxc3xzNj4xFys+fDEINXIwMXIAFgsCciMONA18NQcDLg8+IxcvcQ0uDQIcFgE8ChYINTwSCRAddRESPS4UfTVvDworLTYCIywNAjF8NBdycg4uN28rdTAhLzU9LjUocx02AHBrNh4KJwsXLykPIBNwNXISHQ0lD3ENCCkrCD0RFTY8CXJ0FwFxMnIpIzJyKBILCjc1AQA0ITIHAXMPCCMsCiZxIXYuHTIBLh4hDQcJdi9zdHYBAnIydgA8HXZxCzc2JQty'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[282]='DwgxMTU0BXYKLAkpNT4zKXQmIykxPTU3LwItPDEgNB0LDyMuKz0oJQEKMXA2PTcsAQcdazclCzA0JTU2Ewo3IysHL3M2PQMjMRI+JnY2LWsPAG88FDYsJzYCKy4LKCMsNnI3PBEXASMPIBMwEw8NbxQHI28NFzQlNSZwPDcmcDQIcisuATwOJzEGDzETPR1xDjUDc3Y+ES01Dg03Ngg3KA81KTEyJXUmNS4RdggHcSEcDyk3FDYpcBQtB3A0JXRvEzVvNwgHcx11JS88K3UxfQ4XK2sPc3QxMQYOJg0+HiExF3JvNxAddjASEXAPPRE2ATUzaws0DXwPFwkuNCU1bwgCMCF2czAnCz01MTISEiYLNiMjDyg3MTUPAzELJTE3CwB9JTYtKTEINWsl'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[283]='DTwPNTAXHCULBy82NyADFQslLzUUAC82MhIwJg09Hh0PLilvCwYFFQg2fCg3Hg0xMjUjcQg9LzQ1NRMuMjYtNTYlCTEIDysrDy0FFw4gE3MLEDASC30BMi82AS4rcQkuKw90byslMRANPQwmERAlMBQHL3I3IDVwEwgBKxQ1b3UBcjNvdgYHcCsQNSg0JQFzNBcHNg8SAygLLhF8CSZzFjI2M28vLAYhNg4LNAo1Myx2NiodATUOIXQXcHw0ECoWNSUrdXUWB292AHAyDy4TMAoQM28rBgkxNS09IxMPCTYNDg0QNSUBKzZ9IzI1JigmdBc0JissB28BKHIXNj4rF3Y9PCcOLigddgITcDU9ACUvNQtzESABLBEXNTASJXMWNS03Iw09MhI2ACYS'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[284]='Dw8pMC8CLTU3F3A3FC5rJhw1EywxAgN1EwctNA0GCiY2B28XLwc1dRQKMRcONAs3NQcDLBRzMzI1chMQCyUxbxQ1M3IILAU0MihwMg4oLSwOEi08CA8PcRM+NTccLXMdLywFNQ01NyscNSl9CC4vNzUPKzcIADAmEy4wJg9zMXALNA0pDQA1FREQPTIwIC0rMQcrKRMtD3B1Fx4mFAhzHTQSMTALCi0XNgh8fDAQMzcKJXw8CAARMRQ1FCUIMANxChc1F3YGDy4Nc3cSHC4lIxImI3UNAjcjKz09EHUQM3IPEjc3MgBzJnYIEW8NDysxdSUPEBwwI3V2NnQ3MggpFQEuEywINQlrHDVwcCtzK3J2PR02NyVyfHZyMzUUc3RrCDYzMjEPAXY1LQs1'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[285]='EiUTEAE2fDYPDyt1LwhyawomEzQNNjE3NnIzfA4tfDINPSNxEz0LcDEmE3IrJQ8ydCYwJjVzMTcBCisjHDQJMitzNxc2JRImDzYsJw4QASwvcwN1KzUJKA9yMSgxIBM8CzY8HTJzMTU1PW8VDzUFcS82NzF1FwNrNT4pcA1zATw1EC9zNgIBEBQ1M3EUdREXdjAwITYmMW8IBw0jdRd8djclcnIyECV8HA8TEBQ9C281JSspDz18FREeDSwvAAMsCABycC9ydxIxdTYlE3IBKzYILy0xFgYWERJyLQ4mPCUUBgk8MBI3NS89MS4Tcyk2CH0BaxRzLy4PBg1wNnJyMhwHIyMTPn0WFAoTfHZ1cC4rHgcoCzUTLQtyLRccLQ9vE3ISJy8uJXExBx1v'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[286]='dgIxFzYQLCEUAAFzESYvPDcgMhYLLTMpMT4tMjAmNXIxDgkoEzV2NxwPA2sTNS8jCH01cBMPA3wrCis3DQc1MRM+LCcwFykyHC0jbwoXEzwJFg9zMS1xJw8QASM2F3x2Ew92MislLBYxcyMoDwcRfDYmcCMILSwnHA4PFS8+PXAUNA12MQcLfBEXJhY2JgNzdBBvFS81AS0ILnJzdjUHLA8QfCMLc3UWMi4jdjU9L3UxECt2NRcwJnZzAS02JiNwCDVyPAEPMxA2cQ8sCAczIwoXb2sxF29vDQ92FTU2fHM1dXB2E3Iraw42MzcxFzFyHAgBdi9zKxc1Li8QMhAtK3QlfDQNDzNrCz0pcBQ9BzYrMC4lDRd8KHUeDiE3JhE3dB4GFgEufHEPPAk2'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[287]='DjYDNi8uMX12LSYdNn0tMgtybzYTci80CxBvfQgwNXALc3AyFA9wNzUHCiERFgk0EwI1cRwtIzYyBy11CRBvFXQQNTQNFxFxD3M8FjIlNS4KJXIXERczKy8GBzATdTwlLzU1cw89DCYxPhNwMCATMXUWCSgLMBEsEhctLQEuMSwcBg0tMQA+HS8HEXY2EANxdBATLjcSPTExLjcrMRApLA89HBJ1ED0VdnVyEA0oE3E1NiN8NnMtMg1ycjQKJi1yHAA3IxwHEzcyEC8rFAcRLg42cDIxfTF1CwcLMjIuLRU2cjU2Ci5wNTVzAzV0JispLy0DfDIAKy42JQMtDy58djV9NxU0IDIdMS0HKy81PS0cLi9yAXIJcBMPMzcxfTAlMSY3Nwt9LSs1JSMu'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[288]='NgAjNBQPCW82dRwWMT43chQtMzcNBhQmHDADazQQM3wIfSsVCSUUJggPDRcNJSs1FDY1KCstNRULJnEhDhcvIzJ1E28UNAYmDRcPNRwOD28wJjIlDi18MQ4mLBI1cg18C3IzMgoQDB0TNnZrdBdvcjUPcCN2CjEsNTQNdg19MCYTMBEtNSAjcQoeCXELNRIlCxcrdQslM3wINSMXMnEHazV9KxcSJQMtDS43KTYIESsSFw8odgI9IzI2DCYNNSMoCC0NcwE+DBYIPT1rFCwJawsub3Uvcm8XMnEHIzItIxcTcxM8Dx4FKxwPDRcBNSM2MhAvcjF1ATUxF3BzHAcBfAh1KyM1AB4dMQB8FXYPdR0xLR01Kx4LNTISMCcxfTc8Kw8tKy8CLW8yKAMs'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[289]='HDVzHXUWBWs2LQ0XDQorb3YsC3UvDyN1MXIsEnQSA28xAC01ESUvIzVzEXwBcQ4SKy4RLBIXCy4cByNrDSZrJQ0sBTcPJXwjNQAsJg8sDiUcChMjNjUHc3QlKBYNBxExCAcTMQ8CPCEJEjNyMhI9fAoXDy4SEDcuNX0rFy8oLRABCDUVL3JvazI1Ay0ICBIlD3U9MCsOC3ELPh1xdigBcA0Qb2sNBg01CxAdMg4QKBIyPXI1Ng89fA4QJRUTBgUoDi0tcDIeDxUyMCsQCHIBc3Y+cjIOKAFzCRB9JQouLhI3JQMuMRABEA0QLzUKNigSESUDdRM2bysxcnAQFA4PaysPPCEwEgExL3M1KDAXATcyEDIlMi03KAg2PSgBPgE8L3U1cDYgKyMwEHI1'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[290]='MnIvawouPSMIfRFvNhYFNC82chUKNjEsNj0lPAoWBiEyPAk1FD0dNTUldjABcQsoKz4yEg8Xb3E0FylyNxYAJhwoAS0PJnIsKwoBdTImbzwyBzExFC0JdjUIdC4BCDModBcxNisCcCMxc3w1Ni5wdgsHcnMNJTU8Dy43Kw4lIysTPTIlNQcDLis1LSgICHQtCSUMEjEtDXV2ci9rCwIyFgFyKTYPJnQtEzURdTE1D28BAit1MBcyEghyNTYPLSNxMTUKJis1CXEyPnIxC3MoJxwtcCMrACkyFAABKREXcCMTLAdrNj4zKwslLy0yPnwpNi0lIw41KS11JjdzCHMDMTIlNTITDw02Nj0pcCs2Ny4xAB0VHA8DchEmA3A1LR0pNig9NQ0XFCUTPT0s'
+do T=_lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM or 45 end
+do local _=757 end
+while false do break end
+for _=2,4 do end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[291]='DSY9IzUKMiUBczcoAQ9xJzF9ASkTfTYWEiYSJQE+b3EBBy8tChc3NTUPAXA1JQktCHMoHSt1IywwFxN8DTYSIQE2Ay51HgcuNQ8zKQ8mKTU3JT0yKy58cDEwNCZ2LS81Ew8FcwEOACULLQ8sKxcNdisIARV2fSwlDig1dRQANCYLfS03dgJwLXUmdyZ0JXRrChcpcwh1MzYrB28xCwclcgo1dCM1MBEVDjV1JzU+A3w1DyMyAS5wfBQ+b3wNDwUsL3IjNAEoAzUNECtyMXItNCsHC281CAMxdnMpMA8PLRcOLis0C3I1dQ8+M28PPRE0HC4tazVyDXM0IDYmdCZ2NzYAcBcKEDwdDSVzJQ0PfDcyPREsEy5wLQoXCSkOJgM3DQoxIxQ2PCUPcg4m'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[292]='NS5xJjcSETcxfTFxKxJxFg8XLygKIAwmC3I2FjUlMSgJFwcoKw8rMjV1LXANczVzDjYRLjIuMXUPcnIjLy0GFjUlKy0BNQU1Di4dKzEKN2sBPAU1DjUHcDZyb3ArcyoWLz0SHS99ATIPfQIlEz4lFQ41cigxcyNyKxcwJhMPPTQ1cz1vHAItfAo2AzUxNhwmD3MjKQE2bzEvNSksD3UrLDQlB30LEgE8DQ9yNA42N3F1JWslLz4pcTU2MhIPD30SCAAzNQ11AiUUNilvMXN2cAsQKB0LDgASLw9rJS8IcxYyCDE2CD5xIRQIK3V2CD00HC0tMjU9LzYvCDM2Cz0FdS8+Mzwyc3wrEz58FQotKXwTBgs8AT4oJg8QKzwxEisQMBJyLjUQETJ2PjYW'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[293]='FAgDdRwPKTY1cyMjNiZ8NhQIcSF0EB1wCy0JLhIgLTQ2KHIuMBApMTV1AXwcCCNvNgcFKwg2PTcyPR4dDSYSIRwIcHELcQUydRcDIzIPdhATLhMrDXEFLDYPLygBc3wtMhYHMQs9L3Z2KDEuMTUyJis9KzwcBws1C3ISJ3QWCyMUNncWNR4GFjYmMCESJS8oEzQJPAo1LyMyciwWNhc1NRQoE2s0JiwlCD0zIzU+fDIUcywhNRdvfTU+cScyFx02DhApLXZ1ExcyFxMVNgA1FzImPh0PcioWEhYHcXQlDSh0EjUQDiA3IzImIyscMDASMjYSJzYlKzQxNncdFD00ITEAKRcTDzwmLzZwcAsoM3wJJhwdNiA1cw01K28cNXYwKw8jdg8HMTAxJQUQ'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[294]='MXUtIxwufHUxdStxLz0SIXQlKCELcikQASgxcw19AzwBNissCxcuHTU2PXU3FzMpLzQPKAkSPhILNiMVEwARdQ4WCygrcigndg8TdQ4eBXYLFyUtMQcAJTYPNXIvDys2MSwGFi8AAy4PEAMsDT0wHRMuMhJ2NnRzMQcTbw0HHXE3FyN8Nxd8azYPLxcLKCsuNTQNdjUHPXx2LQ9vMQ8rbwoXMiYNFwE1DTYDNgE+JhINJTM1Dz0FdXUQNyMPNQ4SKyUJMQ4ldHEJFw8sEw8wFjU8D3ANNAUXK3NyLgkSLXMxMDQlD3VybwF9E3ABcg1xMTZwFTUuHTcTdREXNiYTbysmN3w1AH0hDTZycTY2NCUBNT0tDy0sEjElLS0PCDU0NnIpMAgKAy41c3Ir'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[295]='DjU9fQoQcCwUCAN9CxcraxQHEiEyEB4mCy0dKS9yMBY2NhwWNCZ8cistDxB2cj0uAS1yEA8SPCcyJSNzKxcFKQs9MXUILAASdBcJcxQ1MysNChMVMSAtfQolExccAC0wCjUTKBQ1fSc0EDQhFC48J3UlDywBLS82Kxc1FTEKEhIPLSNwEwYPcghyMB0ULQ0xdigtcTE0CxALDwsuNT5wEBQtETQxCC9vFC4pEDAQEzcLfSNrESYRNw8AHic1cgFvdRIBLBR9EzYIAAE1DzYTLAg9AzIcNnIwChBvIxQCcSYTAD4dFAI9FQEwK3AyNS4mAQAtNw8AcnwNBg9yCAdvPCs+LhYTDykrCw4JMQsoPW8rLS8VNCZwcgE9DzcLdQwdKxdwNgoSLCUIAnJ9'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[296]='Ey1vNStyNXEBLnBrCHI3LjYGDzcvczE1DhYLKy81fDZ1Fzd8ATwJawg1IxAxLgEQEz0FLAhzbzAONTM1CDUBKDUSATE3JQAWDwh0fBw1dnAUPjUtdi49LQsmM3ISFw0XDwcHLBM2KTUBBg02NT0NcQs1MTwBABF1NCArPBwHAys2c3AQNgo1Fw8sCSwcLXAuKwgpLgouNzc1LW8rCi0Taw8mcDQIDzc0CRcHEHYwE301BzV1MQIjFxQ9ESwLByU3EzUOEjUIMXI3JXMmMS0RfHYsDysNcQdxdi4TF3YwNxUOFgd8MiUPLjIlfDEBPSgnNnI3dQhyE3ATNAtxERIBNzEQAXw3FyMjdgcLcRMPNzIPLnArdSYxfBw2axI1MAE0L30RNQ0+NTQKJXQt'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[297]='AQARMRQIdDcJFyNwKy4BFQg9HRB2MC1xCDV8cQoQHRcrNQcrNg8jfBwAJh0PJhMtNXIGJxQtDSsPEHAxEz01MnYAfCkvMCwmNggzNRwoNS0LcjNyNQcTazUKE2scNTcjMiY9LCsHLRB2fTU3HAotKzIHC3F2CgEQCChxJytzdCgNBgVxAQBvPDYwEzcILQk1ChIDLRM1BSgBLjUoEz4TMAhzNRUrLTYWMS0tNnYALRULPiwdNTUMJjcmKTYvMBE8DTU3LjUPKhYUPRMVEiAjcw9zETc1JQYmHDAtcgslNTUKLnw8AXU0EggtBSkPLn0hDyYjMjYPdjY3EjVzChYNdQ1xD2sLPjUoChc3LA8sChYBLTMVEwg9bzAQPTUxJXIjDw9yEAgwHBIJHg4W'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[298]='ATV2fDUSPTELF28rCDA1FzE2bygNNi88DT0DcA8lChYvLn0mNCYoJw9zMW8PJm9vMg8HLDF9ExUBNilyAS0UJQ0SERA3JjUQNyV0Lgs1dx01BzdxNhcrIys8D3wrJiMQKwIxLg0PABIPNAV2CDV2PA4sDRARFg03CRIjNnUQEh02NQM1CzAjLRMubxAxJQkoESUtcAstEiY3EC0XKwcpLAg1M3M1LWsSCD09KDcSExAUAnAsE3IDMDEuKBY2dXMdCigRcwF1Ny4PCAFwHC03NDY1KXwvAHJvMXIxaw0mASsrNS4ddgc+JjUPdRYvLTcoDyATEBM2A3E1LhNwCRYJMTEHD2t2Bz1wDTUTPA0QI2sNdRFwFAhyFXUWC3wrEhMQdjUvcQ0+PiUcCgEQ'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[299]='djUcHQ0QKyM2PXwXLz4cFhMAKW8RFgsoNXM1MAgwNy4yfTF1MigTIw0mLRd2BwF8LwYPPDIAMTEKNAk1CD4BdTU9CXITPTc1LwcxFy8oEiYOLjE3DiURMi8IKTIPCDYWMiZ0NwsIMRV2LgIlEzQHbzIPdHYrEBMoDz0JNXUldjAvNiMyERcFcAsuE28JJjctKzU3NDU8B2sTPiglKw90cwE1MTULCHIodj0JLDYgNygOMAMxdi0JMg02diwxABwSDxBvfQ4lbxAUAi1yL3M3MTcWCyg2PiNzNh4IJQoQcigrci0wFD0lMCsIPRURJjVxNi4TKw0tcjE1LAsuNyU1LQsAJSsrNTIWCwgjPDIuNzYONjM3MiZyFzU+MRd0IAM0CA8vEBImPh0LLAlr'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[300]='NxAjKwEAfGsOJSkxESUFcAs1Ny0ycys3Lz0zKA8KNiYTBxFrNiZ8PAg9cyYvLhMtL3MvcQsIPSwPDwIlAS1xJhQAcDEPAHwoMiYBcjUAK3UTcnY8djYuFjASMX0IdXEnMg4Fcwg1MTE2MBNrDyUDcS8AchcLEnAXKywPdRNyC2sINhFxCSYBdjI2AxcrEhMsKxJwECs9AhIIAAFxdg4JIy91ASkBLiVxNRcBLDAQbzIxLQUtFA8DLhMucisNPRMQLywOJTAlbzQyABwWdnJyEA0mLXAPMCwSNQhvcAE1DhI2Ajdzdi4tcjYHCygLChMXDxcRdjUHKTwrcnxrEy0rMjIHPTA3JRMXNj49Nw0mdHYBPSUXMQA0Ei8AfRIPJnYVHAdyNg99NzE1Dwcx'
+do QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=38 end
+do _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM=oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa or 950 end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[301]='L3MRazUQASs2Fyt2DwAqFgEPLTUOLnxxChByMAs+Ph0LcgsXNQItcAE2LzYxCCsQK3JwNAEHL3AvPRwSEhBxFi91LiULCHRvESUOEg4lA3wJED0VEzATNwg1CBYPMBNydi0TKBIlCXExADQSHA8BfCsQKiUrCDU0CHEHMQEoI3YvBykQKxAxNDI9NTd2NQdrdBcRKzUIfSE2PSs1Dz0NLTEWDzcUcQ9yCiUxcg0INiUINA8jMjY3KzV1cigJFzU3NhA9dTU9BzAPLAl8Di0Jdg0lcRZ1Fw01djAMHQEAESscDws3DwcJKBNzEXwyNSk0KzU0JQE+EicUAisjDRclbw00ChINNTcsAS0cJTYQPCYPFgsxFAh0LXYoIzIrdS1vMXI1MHYOCTcNMAF2'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[302]='MiwHNBMAEXEPcz08dg80ITIKAXENPQ01DT0jEAkmMhITCjU0NXNvaws9BiY2fTcodBcdNQEHB28NCjFzAQ8TPDVzPTAUPAdwHA8DcDFyE3AxdRM0CSV0bzEuEXUNKDcpDTYDcw0SN3YrPTN1Kwg0IXUSM28cLhFrNi0jLjQXATErcggmHAAxMTYtLRUxc3MWDS0PcwtzcSYrPn0mDiUrbzZyKyg1AhMyFDZ2LAguEXELMAEoFCg0HXYHHCY2cjEuDT0mHQs1cx0LNAdrDy4pMjJ9AS0xIC02AQ4LFw9yNSgUDwUXCzV0KwsXCzUwFylrLy4laysHEWsrDgktLwIzNQEPaxYPfSN8MXMTLjEuPSMKECVvDQA9Fw40CzENEj1vHDQLNRwAKS4rPh0V'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[303]='MS0JKTIHLTE2MDUrMj4lcHYtPB0LEi02NSUNfDIOBzEIfQMwFDUzKxQ2I3MxLis1CCwFfDECPRcUBzU8C3MTNA0tLTwxFyYWCjA1EA4SNyMBLW8oC3U3fCtxCzwICjYlNBItMQ8lPBY2CjEVNgcxKHZzayUIPik1EiA0Fg1yCBI2AC8sMnI3LnUgLTwrBwM1CzUpPHYHPW8NNS8pMQctdQs+AXISFws2ATwPPBQtLhIcABFrMi41EBwPbxd2AAMydj0lNzZ1PRB2AhEXdSZwLgkeFBYrdXAjMhA3cwh1chAcAH0mDz0RcQ41HBIOF3x1AXIJNnY2A3MLPh1zMSAtFQgPETd1EgExDQcwJhMHbysxJSMjdg8vLCsQJiUxMCtyDz03LBQoESwLDz0V'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[304]='Dy5wEDE+Nys1LisoNShwFRIXEiYTPXJrL3MDawsSAW8BDg8QKzUxPC8GDy4PDwk2DQc9FzEHCRd0JTV8FDQPPDIAKTQ3JTMjNBI0ITUQKSsxJS0QDSURNAo1cisKMCwnCC0jcggAfSUICi0QMBABcTAmL3IBLhISNhcddQ02AzEPcnIoMj4vMRMPKCZ2BwgdCy4vfDISMxUNCC1xNCU1fDEAI3UNJSMXDiYTLDEANXMSHgs1CSYrEBwIL3YBBxMQEiV1EjI9I2svcjwnNihxJTUAESsrdTdwERcFLTU+M3YIPTYWLy5vNnQXMCETKAFwHDUJfDEgNy4vCgIdNi0lNDI9JXI1LS9zNnIzbzUlDRUwEDVyDy0rLDJxDS4rczU3D3MoHTYHIyw2CAMr'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[305]='MjYTLQsPdjYwEDUrMhA9KDUoPB0yBxIhNRcSJzUgLXJ2LjE1AXELNQ8PA3MwHgs0NBADFzYlMRUNBwlxDT0FazcmEW8IBgc0LywIHTEKKxANLjMxdggtFXQXDSsUKDEVCzYDchQPdjcBBg8sMSV2KDYHKzExCAFyFAg3NAg1HBYrNQcydgcjcjUmL3J2NhIWDzZ0PDY2dCgIcQ91KxIsFjYtKS4rPj02NCUPczZzb3UKNjISLy4TKw0QATUBchwdAS0cJg0AcDQLPiMudjwPFw08B3IwJTd1Kw8IHTV1Ky0BCjF9dnU9cwgPPXM1PiMuFC4pNQt9AhIrLQM8NiURdQs1dDIUAgMtATwLaxQ8CTIKKDYlKwoRaw8gI2sxFwomAS4tKDEHKBIxJSl9'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[306]='HC0xcAsAExV2NAVyDyY9EBM9IzUSJnZrKyYSIQsoK3B2dQMrMhYJEAsHMTJ2PAkxDQJxEityBic1PA1xL3MRFzIuLWs1Fw8oKwcPcjElPXIPEDU0Ky40JzIPAxAvLSsQdSABMQ4XAhI2CHUmMgcKJgs1PSwyBwc3FHENfDUXDTYLFx4WAS0oHRQ2ARcrPAd9DyABLg0HMywTDgYmNT0vKQ0oNy4UBhQdC3IxIxQwARAyNgEVAX03cg1yDSkBNRInCig1PAE9AWsyNAAdKworLAg1LS41BgAdCy0pFw8oNiYOFw8uNBAzPAsHATwKFyM2NS0tchQubywINm8jCwczcQ8PMy41EiM1NTAtNTcXC3MyBgYSMQ8LIxIWCCYPJSsrESZ2bzEtBhINPSMQ'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[307]='AQcrPAh9EyM1fTExMRI3di8KKzEPDy83Di0DMTcXHXUNNXJyDRcpNjIlLCUxPiNvdi0RNhQsCTUrD3RrCxYKEg4XDiU1F3x2DT4DLAotMCYNJXQXNTATLgslIzYwJQcuDiATFS82I2srLS81EiZvKDcmdC42FyYWMQJyKzEHMX0PCjIlDi4eJQE2fBUcLXJvL3N8KxMwNzE3Jj1yHAd8NDEXCSkrfRNyKyg1MnQgNTETPQc3Dy4zdgEtb282c3A3DS0PNwoQPh0UPQN8KzYpbwolK3MvCC0jEzAtcRMHbywOKBEoDxIBIys2NxcLCCgnMT0DcysHPXUwFzc3ChIjFQgPcCMTDgcwEiULawE+N2sSJS8pCxApfTIoPCcvcgl8KzwUJg0CE3wrAB4m'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[308]='DS0xczE1CTY3Hg9yERcqHTUtIzE3EnAjCAg9axMCIzE1LgNxDw9wNzE+LygxDw8sNRcRNwg9PhYKNQE0NXUxcg8INzc2cjV8EiUTPAslERcPLXBrCRc1cDJyNSsIc3x2EzAjNQ8tI28wEHAoCz09fA8+cjAPEHJ9Cw8TMistcxI1IAIlMgh8KAE2MCYxcjUVKz4tMHYHJRUTNi8QDhAjKAosDicPfRFyCxJxIQ01ESk2NAVzCjZ8LDcXMxA1LQkXDy0LfAsCcnELcQohDQcqHTVzEzQyLSU0NBJxITI1BTQ1c3JvMSUIEi8KASgPLQYmAQ8FLC81CTYxCHIxFDwJfAklFBIBKC1vNXI1I3QXLRA0ICtxChAmJRRycDURJTAWdi4pLTFyMTw1AC9y'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[309]='MSULLXYubzwBLhMsL3EAHTIlIzILKAF1Kz0LFRNxD3MJJQlzdSYxcCt9NB0ULXwrDi0BMg42LSgNJXUmMRArF3QXKTAULXMlEwgjFxwtAzUPBxE2MRAdMQsmMykrJj1vNCA2HQsPcjYLNS0tDQ8HPCslPSwPBgUudRcHMQsXMxcIDgkXDxcHEDI+MywTNi4mNCVxIQg+NzUPCgE3NiAjLi8ILBIyLAUsDQcdKys0CXM1LjV8MjV8cTQmN3F2dTUyDXN9IQ8wN28rJi00djUBPAEHAywBLQ0pCwI2Eg0INCE1Fy02dnI3cRQKES01EgEoEy0BfAgsCiYOLQYdMnIHKzcgDCUPEB1yNyV3FisXATcBDwkoAQ8IJgomKCYvPhMrDSYTFS81dyUSFy8t'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[310]='MTVyNisANSsREDctEiYBazIAETJ2MCsydCATMhwHD28cCHcSMRB8NAs1DzQTdRFyDTAtcw4eCzB0JnAVNj09KwsAHCUvcywWNSUzNjYAJXwwJQFvNhc9by8IK3UILm8tNRIwFjcQI28rfTc0AQ90cwgHLTYvBgAWATY9MQ0oExB0JjUoNSYzNHY9HhYIPj0sFAoTKzY8Dy0xcncmHAojawEPMW8vBy1zMjwLK3QSMTEBPXArDRcMJSt1NhISIDErDzU2FgoXPhYcNiMtEzUGITU9B3E1cgUtCjArbxwPAXI2cgdzCz4pKBwPC2s0ICtvKwB8cwgALzwTPhIWDxcFdhwtMB0xLREsNxACJQkQKWsSICs8KwIyJgE9NSx2LS9wHAcPKxISMXw2c3Qy'
+while false do break end
+do oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa or 532 end
+do DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa or 77 end
+do oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=57 end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[311]='MhJydTIQMzV2NQ91ATUTPBQPdxZ2NX0mL30rNytyLCULFw0uDSUDKxwPCzUvNXxyLw8rKS9xBiErFwgmFDY1MjIucigBCCN2MQJyfQoQEhI2JS98NxJyIw8QKCULCjcxMg8tLhEWCzUvBzc1NQgjNitzK3wJHg98DxBwcjEQKCcJFy98DjArLTJyK3IrJTIWNgcTcjQlMxcrNjwlCAhvFzIXEzAPHgU3Dz1ychQPLzQBD30dMj0tfHUgAXM2PW8QDjYDMSsubyw2DzMXCAc8HRQoPTcPNTU2MQoyFgh9Lh02CANzNSVrHRNzIyMOJQ8QNxA3KzYuPCYTKAFxATUFLSsIfDUNDwYlFDYjFwsXD30NNA8uNiYRFxEXPXAUchMXDxByI3YCMRccNAkp'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[312]='NT03cXYoExUSJhNyCjA1NAE2N3UTMC03CAIRKxwoPiY2Dg9zD3INKy9yIxArCBExDz0LLnUQERcIDy9vFHIHcjItERUxFg18CxItcg1yAiEyFgd9Kwc8JgomIzQBBgUyEzUzMnUSMBYcCjE3ATUzcis1CxUUPTE2NiwJbwklFBIKJXUWDwAdFXY9PRUPcy1wMn0TMSstDhIxKANxATZrJRMCMSMIBy8xLz0lFTEQLTcREgFzLzAyHQgHMWsBPjU2CxcoITUOChI1PR4lFD0Raw41MBYOJT0wNjUHcjZ1NCUyChNzMj0TchQ0CRATczFvDhBvLBQAKCc3EHEWdnENcXQSERATPRMwEhAxNDUHNCEcNnIsCwcPfTECMXIBLRQSMi0KJzUILyMLJnQo'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[313]='KxISJRQ1MSt2LQc0DQcDEAsHPW8BNgwlNTUKFi81PW8PB3xvE3UtLgsPNh0TdTcyCzADNwkXMyh2Pik0dgIuFhN9Nzd1JRF1MXIjb3USK3IyEj02dBYLPDEScisLCiM2K3URfCt1PTEcDg0jCwIDbxQOCTYPFgAWMgAREAklCBIKNhMwDQABcRwuK3M0JncmNg4FIwE+LzYvc3EnESYzaw0PIyw2PQVzCyZwNQ11DB0SJgFwDzU9NBQ9cHATfRNzHC4xMhQ9BhYPBy8XNBdwNxwub3MSJnx8MQhvKBIlcjB0JQMxNj4dLhMCcjcPcxwlD3U3bwsSI2sKLRQlNj0BLg4SAxULDwUtAXM9MHY9DXYNcxN9NS4yEg11Ph0yPQM1HChwcDIWCiYvPRMw'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[314]='NnMDIw8uM3U1AB1yEhAjcDE9EXMTPnw2DjZ2cw1zKzIPKDN8KwdvPBIQEzF2LWsdDRARLDU1LywNJikoMTwNKXYucjYONSssNTwLPBMOD2syPA9wEhB8IxMPdx0SFxF2DiYRcQsIcDwcADVydnM9fHYtEXIUPSkVCy0LMhEXDXExfTcQHAojEBEQcCh2PS9wChARKAotEXIOLi1ydCUxLA4lFB0vByUwNQAjPHZ1MzISFw4dDT4rbwoQA2srEC18FA4PLHYOCSsPLhNxFAcRFwo1DBY1fTUsFD4dPAoXKTYRJjAhHAgqFit9MCYPfTVwDQczLBwoNBYKFywdAQ90NTI9ETx2PRwdNi4vLg0PATYUcjEtMn0wJwgANy4UcgMVChI9NXUQNyk1AD19'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[315]='KxYNLBM2NB12Ci03CwJzJgswKzQIPjctDT0vdjY9PX0cBgsrDS0pMQkXB3wyNXRzEhYNNg8+LhY3EC11L3IBNw8tCiU1PAdwNQgvcwtzK3wUDw9yCAIxNAguMW8rLjcrCA8jNgE1CzYUPQAdCi4dcQolMzEPdSs8dg4LcDI1dG82Pi8ydSYBMTcmcDcOFgdrNyZ2Ng0mEygyJnRyNj0BNBQoI3J1F3BrCC0CFg8+MW8xECsrEhAvPDE0AB02cQASFHMsITQgAzwrPSVyFC0LLBQCATcJEgNxDz4TLTAQAh0rcy4SEhIBcXQQcC4yci9yCHIjdjcScHYNLSoSAXURdSs9HXwyNm8XMRc9PA8QKyswHgohMRArNSslNBYUChImdgcNKwsSN3A2PAV8'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[316]='CHM1KAstN3ISJhM8DigBFxEXLCEyNA9wHC0pfC8PAzcUcgs2NxB8fA8+MXwyDwE3FHJyIxM9KXAUPXwjdg89IyslayU2c3xxK3MxfA0QN2scCBwWHDArFQ0oEiYLDytrdCABczE2dDQLKDFwMi4pMRMtDXErNXY2Cy0lIzV1cmt2c3xxCH0rMQFzNzEcAgE1HAAjNjcgETcxBw88KwoBMg8tKS52LAlxEzUDNSsKAzY0Jm8oLwI9NQ8OCiYrB3woDTUzNwkQEhYrICsjMnMTbxwPfHMUAjYWMhIjIwsuEh0yJSk2dnU1MgEwMhY1EnAtDxISJysXby4NEnEnCRI3MhQIcjcycy1rNRBwFTI+ES0ILi8QNyYBPBNzb3wcLW8jKxBwcw82KS12dRNy'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[317]='FA89cS8OCzE1LjMyDwclLAotKW81PXMdE3UTby8IPSN2cwMuDwo0JjI+A3A1Dwk3AQgxNQt9ATR2dTEwEyhxFg80BxA1NnIXNRYHMQguNyN0IAM8NT4pLjYGD3ExHgsydi0TMAg+PiU0JQYhLy5zHS82NxUrNTdvFHMzNAt1AicyEhFzdCYxKCsPdnMLJTEQMT1ydXYII3ABBgc2L3I2Jg8oPBY1Byl1CxARfA9zAiYrABFzdnIzfA09cRY0F3IQDiZ8cCstBh0BB3JvDzU9fA91cBArNRFrHAcNMjYQM3ATBxF1Dw92LDcQLCUvciksNyY9LQotIzwNcQt1D3N8bxEXcis1BylzCwgTFS8AMiUxDxE8NSwFcTQXDTINPSMXNXN2dTUQHiUTLT0j'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[318]='DhBwFxMtcjQNCCsuHA8AEnZzcCM0Fx1zCC0PIzY+fGsPLA0QFAAlcw0PKSwBDxE2KyUHLhIQIzYPLXJwMBdwKDI1bywrFw4lNgATKxwuA282BgomMRAyEnUlARULFyU2MCUGHTEeDh0UDwtrDyAjcjEPb30rcnY2MTY0JS8AEzF2fREtdg8Jcw8HMTQ1Dy9vNCZ1JysAHSs1Fyk0MS49cjE+EXw2D3JzMSYREDElBzAvDwUyEiUNFzJzAxc2CBEXFC0KJQEtPS4OIAIWNhByNwEwEhIxADFwEiV9JxN1MxA1LXIxFC4uFgsCLSN2B3AtNRAqJQogLSw2Dg9xMhYFLRR9ETIILjMoEiY9Iw41AyMPLjF1CzZ0KXQmcn0BChEpEhcpfQ8lChIxCi1v'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[319]='ChdvFy8KHCV2NS01CC5wMjJyAXExPTFyCjQUJgoXHCV2AB1vDw8jEA0lIykTCi19NyURMnY2dG8LNikQdRcFECsIATcBAjNxdnMpNwg1AicLPjMQESZycjEtDyMKLjV1MBI1NxMPL3w3ECsQDhAvLA8oMSsRJTUrMigjNitxCiUPACkxKy18EAFxCzB2AjUQDiYTLQ8ANiY2Byk3Lz0wEhMAcHMUMC0jC3J2PA99NTQcNjUwEzUDfDEHM3AILQtxMCY9KAkXD3UyCi1vCD0lfS8tDRAUACMQCjA3cA9zcjd2NjUxDyUPMAgtBTx0IAN8FDwLIysXETEREi11CH0yJTIlD3EcNmsSCiwHNzEgEyw1ECUVDQ4OJhEXbysICG8QdBcdNA4tDiUxDy9z'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[320]='LwI9Fw4mNXEcBzEVNxYLLi99NTUIcgASNCUpchMCMCc1NXBvDyZvPAs2PX0BLiU8djV2Ng4ufDExPm88MRAtFRIgA2sKLilvMT4sJi8PNSMLD3wXNXIMJRMtax0OKCs2FHEUJhwwEh02PAVzFHN8EDclAXAUKDU1FC1wNi9zKh03JQNrMRByEDECMhIUfSMoERAdLS8+Ly0SEB0udRARKCs9CSwrLAglASgTKxQII3MNCjcrdgoTKDIsDSkyEjM3D3I0JQ4uHCY1Bw91Di0SJjYldhAONjdzCwczbwkQMzUrdRwWNQArNXY9fHYxHgl8CzYjFwsXby4IcyM2Kw92LAstES0IfQEyNBcFFQgwNXIUNQEVCSADNTEXCXUvNQISMjUzKwE2cGsPLA8t'
+for _=2,5 do end
+do local _=48 end
+do DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=75 end
+do local oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=598 end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[321]='MhABFzYHcG8NJmslLz0pMjYAIzUxcik1CwcNfDIAERcLJXYtHC0zcjZ1MCV1HgkoMCV2cwoXIyg2AgM2CSUTFQ0wLSgLJTVzNB4LawhzLxAxJQM3AQg2JjQSKzINAC0wNXUBNw0lASsKHgl8NhA8FjUXcCM1cQsyNTQNKzYocnMycgV1DzQLLTUHMXUOKAISEzUjfAhycBcUB3AVMjUPfQs2PhIwJQF2CHU3NzZzATQJJSlwK3IRLAgwNBIRFwdrHDU3PA8uLTIUcgYmNTwLbxMINRcBPhMtMggRNjIHPTx2BzV9Lz0jLgssByMLNQ1rLz5yc3YuJRAyLXI1CyZ0KRwOCiUIPX0nMiguJggoHBIcLSNxdgBvNA8QPiUIchwlKxcdLQ4wLiYLcys0'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[322]='EwJwNzAXKSMLEDUxFAcPNxIXBzQOLTFwCC18djESMhYNFwcrDS0xIxRyNiYBfQNyD3UBfA0lAXETAgNwLwIrNTI2L3A2JQomNyUSHS9yKCZ2BwUyNXEFfBElI3x2LXJ8NBcrMTIIAXE1cnEnFD4DKw0IE3IULnwuCzAwFjYSNTwvLTAlL3N2NDEuKysUdXJxKwoRNjASI2sycQ0VMjwPEC8wASl1Ji0wMRcxMnUXJS4NJQM2AXMpNTYoAhITPA1xMgoTIysXDXwOLnIXNT4DazVyBhYIchNrE30tNw8PLTAxLA9rMgAjFSs1Cy0BLTMsDSwIJjI1fHI1KDEuD3IJLBMIATQRFwIdAQcNNjQXPCEPFwwSMQApIxN1Kyk1Bwk2NX0Tbw0APCYPLnAV'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[323]='KyY1IxMANW8OKHI2KxARNjEtLzd2NhwdCy4zLhMtCzEvD30mKwItIxEeDTEBAHx8DS4vawg1KykOFwcydnN8fAE1NB0yEC1vDhcBKzcXD28cABEVC3N0Iy91NSsyPQFwCiYSFggIcRIyB3BwChJwIzEgLS4UPA0xLwotNjYSE3AwJS0wDywFcws2KXALKDMoLywNNzIQb3APFg8rKy0RMXUWC2s0FxMtDwATNRwAL3YrHg11DiUNNhQPIxU1FwVrLwACITIHfRZ0FwsjE3N2NxN9LhIyKBNxEzUKEggPBxU1Bx1vMihyLTIXJTYNJnRzMiZwcA8AJTwxNSNvCDwJLRM1CTIPFzM8dCYjcDZzLTA2LSs1NRcLcgtzASh2NXBwNi4DNSsCAywOJQ8X'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[324]='E3JwMg4WABYLJi1rEhABMjUSLCUSIDE2D3IcFisALTE1NTIWMj4vNQs9AB12cz01dRIDMDUuLxcJJQkyNCYTLg41MSsKJQMXMj0lbzAmcBd2PSkyK3MRKXYKETYyDwVvKwg8FisPLykNcQ0XNh4PLjUlMyt2cg80MhA8ITYXN3MJHglxMiwJLQo2KBYxAD01Ni0mJQsXPTQSEhMQCHNzHQ4oMhYPNXw2dSUwIQs9I3YPfTImDXU0JTQXAzJ2LiNxEwc3MjFyPBY0Fz01CwI1awhzN3Y0EHMSMgcLcjAmIzd2LA12CiAtfBElcjA0EC8oCC1vLnQlL2srDzFxKz0vLQtyfDU2JT1zKy0HLAhzcjQUDykjCC0vMTQSAW8NFxMxDi0vPCsXCzQTAB1r'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[325]='FHIwJTY1N3ABNjEXDjUtEC8GCCYPEAMVC3M3NzF1K3ETcxwdLw8PF3YoK2sONTUxHAc9I3UlCzw1AB02EiAxLBwPA2srJXB1Ey0DfAgtLTQvD3USCDYtMi89PTR0IAMwC3IyFjIXHCYxBgYdLw8BFw82fDQLNhE3CiV0b3YPARUJJhN1MCYDfDZyCSM2MDUrKwYPECsXHiU0HgglD3M0Jg8+cn0UNm8tMgoRaw1xDxB2B3MWNiZ0NwsPbzwLPTQSNXIyFjIldSc2LTFyEz0jNwg1KXUyEG8rMCVvPAkeByM1FwEtCyhyLTUPEXUINAV2MT5vIxQuM2sRFxM8FHN0MTFzfDYvPAgmDjAxFxMtBWsSFyoSHCgDdQomPX0BLQlyKyZ2KAE1MRAONjwS'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[326]='CHIpMDElMBI3EhwdMTUTfDIsCRcLEAMQDT0SJg8Idhcrcz1xC3U2JityPiU2JnxzCRdzFgo2Ey4TCHx1CAgxLBQ1PiYrLnIsDzURcQ4eByg3ECM1CAIBPA8tLzIUAClrATUIFjUsDSwyB2sWLy08EhMHfSV2AD4WDRIjLisCcDUcB29wD3JrJjcSMW8PEDQhNS0rcQkXChIyc29wCAYPczImdjY1NjAnERcDbwotIyMvPQMVCyUSHSsGBy4TLm9wKy4pNxRzE3wrFx02Ly4sJg81EzErEDcoDTUxNXYIdHwOED0yNS59JXYPNXAULW99NQ4FNTQXPXMvADc8CAYFcgg9NB0KLj02MTY1dTU1BS4LLTM1FHI3aytyLTYxDgYlCD4ldXY1BXwrBwty'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[327]='CDYxcgkmLyw2cnZvLz0dcQg8CiE2CDd2EiYxNjcQJh0BcQ99dRI1cA09IzYBDz0rK3J9IRQPMCUwEhwdDiY1cjEHPTIIPQU8FAISJgoXJiYvBy81NjQFFRNzKCcLKBF2Mhd8NxIXN3MyJi19MXURcy81NSx0F3wsDiZrHREeCTUNEAEjKxATcAsSASg1JiktMCY3KTcXJTwvNQ8QKz4tKxQ+MhIRJSMyMRclNA01AyMyPStwCyY2EhR1AysIdQMsNSwFKDUocjYOJXQxdBByMQ0+Nyw2JikXCDUvcQg+LXMTAnAyEy4laysocxIIPigWHAJyfBwHATULc3JzNi09KwgoNiUJFgUVCRIjNDEXN3UKEClyMhAlcRwoPCExNTFvHA93EjUldHI2FyMx'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[328]='DXMMFhRyPSsLEjU1LzYrdjAQKXV2cg0rCiUPLjE1dSYBBysQL3IzKzcmPTYUcj1xNgIBFQg1CWs2cgVvMggrfAEAcyURFg0XDSATNDU1CSN2cQkjDS0jLQ8XCRAvByN8CDA0FhEgEW8vADUrC3U3cwsmLSgNKDAhMSUjNCsAcigRIAIWCx4FawstcSUNJiwmCwhvcDU9K3EKLjQWFHUzNA1yDhIxPgFvDTYsHRwoNXIxKAF2ESVwcA4eDTd1EHByCjVvMjY0BTYxcyl9HAIxLgstPWsLD3UdEz4vcTEgAiY1B283AT0RFysODRAyKHI1C3EIHTUlbxAyJgwmMXUDLA41L3ITcxMXKwA9PAg9LX0yNit8MjACIXZ1LXw0Ei4lCy0rKTQWBSgNByMu'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[329]='FDQHNQ0HfC0LKHAtLz0lMjEeCyMrAjU3NS4BNg8uMS02JXxzNXINFTJ9AXw1cglyDh4PKBMtDywIADUxL3EHdTJzdjUvdTE2Mj0pPDYgNTcNLisyDRBvKw0AEXA3Ei0sNjAxMhN9KzE1PA1zCzATcjAXJXM2cg0VNBYNNxEmPSMxADUjMCUHNA09JSMUBx11dg8MJgEtK3YPJXBwCiZ8MXY9fScJEDU2DSAuJQstcDENEnBvDTUFcys2IzcyEAMjNyY3KzU8CSgxcQ0QMjwHNjU1E30vPA0jNj4RLC8OC3M2AD0jMg90PHQSKyh0JgMwK3U3KSs0D2sUCDAhMXN0KQECEy00EnIVMnITfXYHKSMrLAUxDw4HKAo0BWsyLA8oEwByPDIlKzUTPnMm'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[330]='DQYHcS8AAWs2cjAdCy4wFgkSNzw0Fy1wCRYNMgsAfCwxMCtvCA8LLAtyASsxMDUQMi0jNg8wNS0rKAEuKz0pIxQ1EyN2MAEXMSwLcQEtCBYyNi80D3VwNjJzb281LnI3Mi0dKQsHNTAcNTAWDwB8ECs2dnx1EgFxMCYsHTUXKSMyBgsrNQYLNw0XN3UKF298NSASIQ41byx2NnRvHAclKw4eBysBLR0pDiV2cgh1cmsUMBF8Mg82FjEtcDQBCBM8dBIsFg9yBSgPLXIxCwAvKTY+KSMSFgcXMQBwFzUsB3MSEnEmNBcjMXUeDXALCBEpLz1wchIlPB0wECkyDi03KTIlETUILW9vDjYBNRMAEWt2LSodKyV8cjcSEygcAAwdNQo3FzEQEXwBfRMt'
+repeat until true
+for _=4,5 do end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[331]='NTY3EAo2LTULJQIWNBBrHRw2MzwBcxIhdgAsHQkQETEvNSNydnEPLjEwN3Y0F3xrdBYPbxMCPSgcCHQVDi0Hbwg2AWsBPTAWNRATfTYmPBYxNQ4WDjQHNDJyEzQvCDcuFD0dFXUmcjwPcxM8CwAqHQ0lPB0xPXA1DiYTECslbxAyCCk0DygjdRQGBTUrcjIWdgcpcxwsDzIUNgNzNi4lcHUSPCcTCD19djwJLgt1I28xAhwWKwIDbw8PcjAKNAtzDSVyPAs+cnAJIDd8MBcRIw41D3AwHgU1L3MqJTI2di0NBgAmCxYFMTEtBSkBDgVrdRc9dQt9AxUyCG9wMg90dQ8+JX0UBwMVEz03MjItMSMTcm8rMCUvMXYII3wNJnJxdgYOIQ80BTIPNitx'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[332]='CyUxFxEgNzcIPi1rNi0ddQ0mMTYSEHwxHDAtI3YHExA1cjwhCC03PAomNCcUKC18Nj0xMSsXMTw2CBF1CA4HLDZzKhYKLT0rMi0tKDUXETIvDxFrDz0TPAgKNS4NFxImKwABcQ8tNywIMCspDyYjPC9zPSsNEjc1DQ4FcDQlBSkyfTUsNigtbws1BRABLjFyMi0JbzQeD3U2NQt9CHIrN3ZzEzcUChNyATUGJTU+MTY2BykuEy49KzUtPXUvKDdvFHMCJQ8AI282LQ11FAhwEDcXIy4rDwdyC3J0KTI0DTQKFwFxKyhyPA8HDzcvPQlvKyZvFQtyB30ILQtxDxcxLDUPdR0SFwIhMS4rcQ4oPTArNXIVdig9KzZydBU1PQ0rFDYrazEAPRcNJS0w'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[333]='CRA+FjI+EXwBNighMg93HQooA30NNREVMXUtNzEsDXMRIC1vAT40FjAldjUILRNvNj5vLHY1AzA2NAVvAXM3EA09ACU1NAlzAXUrLXQlKzUUNQsoC3ENIwE2MzUIDgctKzVvcTY+HXEvMDEuCxJyczF9ERALLnMWNi0OEjUWBzwOJnA8Cz4SEjUoM3UvAClvDw8razAWB3A2Jm8tMRAdMS81CXMUDg11Ni0wJisXCzQTCBNwNj0yHQooETQUNXRyDjYjdTUgI2syEi1vHAATEA9yNXAyFzEjMiYpbzFyKSgxcQomEz0KJTEIEzYTNXUSMTYyJg4XCSwBDxMtEhcBPAo1C3x1JighCxclNjUlAicLcnZ1E3UCFisKA3APcz19MhAjMjEmbxV0JQIm'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[334]='FAcRMQhyLiYIAgErMRAoIQg9DzY1MCNwNBABMhwGBXYvLA08MSASJSs0C292PnI0Ehd8Ng4XKB0yIDEsFAA3FTZyAzQvcgFxMgg9cRISKygPLnAQNRATLjI1CTYTDg02MBc+HQ0KLS0NEClzdg4UFgooESMyAD18Mi0JaxM+KSMUc3Y0DQh0NXUQLBZ2cnA8AQAyFjIeBRUTfTEsNRcFcjQlNSgPJnwXFA9yazIXMCEBLQkoHDUFMhQPLzYNEDAWDRI9NjAlES0KEjVxNT41Lg0IdnESEBEsERcRMRQ9Eic0ICMtDQAzaxw0DSk2CjAdCC0PcQouMCYNNTwSCxJwPDIoNhJ1IDcXDxIrEDEuETJ2BgcsCzAMEi8tDRB2LQVxNRcFI3YALzEUdREu'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[335]='CD1vNxESMTYxF3MSHAhyIzYlNzEPBg03MhdxFjFyDXAOIBFvMjYxLg0lMiUTMAM3NxABPAgIMX0PDwYmMXMpPDE2LXUBcgVrNi4DcjASESMrNA4WNQ8xKy8+cnIyNj1wMRAzMTUtNRcILi01C30tcjYPEygKFwU2FAcNczYuMygNPXwrFA8FPC9yNSMBczE8CAo3MTIPARUvPiMuCD1vfXUQLXx1F3AXNiULMQ0mETc1cz0rdjVvcAsQEzUxc3AoEwAoEgg+NTYLKANxCD0pEAsuKTULcxMoDy4zMjEmfHMBPSgmCwoBNjQmESMNfRFzEz0LMDYgIzcLcjIWD3MjdSsmEXV2NXJ8DRcxI3ZzKzY3JQcsMjUvfBw1My4LFwtvNiVwNwstcjwrFyss'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[336]='NT5xJRwCcGscCis0Dy1wMnUmKy0wJXIQFAcrcTEwEywPfTc8NgADby8+NRAOHgYhNgAvMg8eFCU1JjE8dg8LFxwtLSgrChErMX0cJnY9AzUKJiktKyY3PDYAL2sBcyl1DXU1MAkmESk1cgs1NgATI3UeFCUBLikwMCAMHTUHNCV2Aj0jEh4FLCtycigxc2sSAQhwfAgHBhIrcgIWNiUtLDIHCXF2CANrCC4dNS8IdSYxdTV9Eh4FcjUuEXM2Ph0uNRYNdSs9MzQcLAYdEzULaytyDzc1cjQSK3EFdissBXw0EDIWCA8NdnUQMywPChN9K3ISJTY9ATEBPTAhMhA3bxNxBxULJS9wCD5wFQg1fDYONgEpDwcCHTAlNBYPchEudSUFdg8tNCUvNSlv'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[337]='Ey1yIwhyDRcyPjIWCSYBLA0GD3N2cgsVEhc9MC8PB2s1JQwWMTU9fDY9K28vPTcrNi41PDI+MRcOJn0hChcHKBM1Ey02ci0oCyYzKQ8+LzcUNnYjNi4TcwgGC3U2FxMVKz0BNjIQJRd1Fg99dRI3EHZ1LhIBcgkodSUGJTQXKRAcDwUrL3MjLQ0lN3wrIDUrATATNCsuKXAyc3Y3MRc3MQg+KTE3FzISNSYjMQgAfDR2fSs2K3NyfBElcBUxc3IXCz49PBw1DxcwIAM3dSAtfBMtBXUxcyN8KzZ9IQtyAXI1JQYnNXVwPC8IKzwUNS8oDTUtLTYKNTU1cQU8MSADMg8KI3ENNi92DhBwci8+KTYvfSNzCx4Lby8+bywcBzEoFHJ8MQECLRUBDg0x'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[338]='CHEFKQ8tfRIUPiMtNXM0JQs2KTUIcystEzYRKAo1D30RFy0rEwcFcjEIM28PMC0jDR4PNQo1MXEycgNvCHJyKwE9fCw1ChMxDiUjaw0+JS0TDwwSAXUBdRQIMSsIPiVvMj0Bcg0lDTYvD3B2L3U9LBQ9MyMNPm98dgorPDU1HB0PPilrCA8PLQ0+cCgTczU1FHI9IzY9DiF0JjVvNBcCJSs2PhIxNRIhDjVzJhQPC3wKNAVxdjU3KSs0BSgyNnx2dCUjI3QXDzcTMDE3NRczcgsODTYIPj00MT0CJjElLywvCDEjC30tLDU2PWsTCDVwCz0qJQ0mdjAxJS0wEiU0HS81EW83JjE8MnEPMgoXCTURF2sdNX0xfQ4wASgPLSstDz4+FjIucCwLEhEt'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[339]='DhIDfTEXbxULBykxNnMrNg0SMxcxMBM2CAcRLBRyCSMxEj0wKzY3KyslKX0ILTNzdjwPKA42KTQ1LhNzHCwHLgtycCN1EgF2NQgCJysucjEcAjFvMj4+FnUXDTIvBw4lLzUpcnYwKygPNQUtNQArfAsHC28ycxIdNBATcBQ+AzcLJjcQCRcBKBIQAXEPNj19Mg8BEBNyfR01JgEtKwI3FTZ1NRULCDEtdRcvbxQ9KzcPLXIVMQJyMgseBhY3FyM0LzUNIxwPBW8LMCN8NyUvNQ4WC291EAEtASgcHTElAy4xCjVyDz1wFQ4uchc1Ni00DyhwcDU9M3IPJQ0yDR4NKw4XNxcILTN8DQ8zMTUPbywyEHw0CiU2JjUsC3AydSNvMCYxNBQANTwLDykX'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[340]='NS4eFnQmHBIyFyktDSVycBw2cDwrDyk0Lw4LFQEoNzEUPTE0NjYTfA0tBxc2CDAnEw4PLjI9BxB2PXIyMQ8tIwgAcCgxB3xwLz1yfAEuHiUNFgtvAT0wIS9zLTEIB2sWNgAcJQ89L2sIPiVrATwUEjUgNzwxFxFxNXMTNQ0QDBIxDzUjMBYPPC81djU1MAIddB4LazVzIykrCCtrCSABPDI9DywyIDAWNgIRfBwAKyk2Ni9zCzUGEjE0CRc3EAM8DRczMQ4wE2sBBykQDw8jPDYtLXMSFg0tdgcoJnYPEW8yAjEtNXU3Ny9yLiUTPjEtNCABdg4SMXI3EHB8MgcOJSsPDysvNhIhNCY9KC89ExALDys2NCV9JjIHNSwTPSs0CAgvcnY2ax0NCHZ9'
+do QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=T or 806 end
+while false do break end
+for _=2,2 do end
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[341]='E3EHcTFyLCUxDzN8EzZyLA8ScDI1JnApMQgBKwoQLzcNChE0ERcNcQ0PDTIPLXw8dghrJQ4tM3ULJW9wMiUjLhNyATIUCCkoLy59JSsCLXwLED0QDzY3cTAgNSgPCG8uLwByNjYwMTcrPA1rDyg9cjE1BTINNiNxdj0qJRwCLTAUcQk3CDYvcRQAAzx0FwNvKywHcjY2Ky4BcjEQDzUjLnY0D28IKAwddRc9NTASPXwILAAmMShyNAhzPh0LNjd8FA8HdQ4uNSh0F3BzCy40Fhw1fHAPcnEmDw4LcA8wA3ENJnxxDhdyLDYHLygcNjV9D3IAJjQXfDE2JjwdNQclNwE9DS4yAHI3NTUAJnQSAxA2LQ88Nh4NcTUmMzYvcj0oCx4JIy8AHB0SIC4m'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo[342]='Lz0jNg4XN3INACMoMCYRdSsWBiYxKHEdMQBrFjEwEXw3IBMjNT4lKA0IKy12BwgSEzZ2FwgCIzIPFwMoNxBwMnUXMzIvNQU0CHUtNQEKNCcBLmsldSU3bytxDXULEHEhNBISFjEuA3U1EBF1Dh4HNRRzERArJTcsATQLNxIQKBILLA4hKwcTMAtyBzITD3R5'
+JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo=_UVWX_WXYZabcdefghijklmnFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrsPQRST.concat(JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo)
+do local QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=339 end
+pcall(function()end)
+do local oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=377 end
+do local _=290 end
+if oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa then oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=99 end
+do QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv or 35 end
+if T then oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=94 end
+if oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa~=oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa then else end
+do DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=92 end
+local __BCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_KLMNOPQRScPQRSTUVWXYZab={93,7,114,35,50,68}
+if QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO~=_lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM then else end
+do local QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=888 end
+if oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa then DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=96 end
+for _=1,3 do end
+if oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa then DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=71 end
+do QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa or 71 end
+do _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM=DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv or 2 end
+do local _=653 end
+local function KLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx1DEFGHIJKLMNOPQRSTUVWXYZabcLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxfghijklmnopqrstuvwxJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuv()
+local d=JKLMNOPQRSTUVWX_RSTUVWXYZabcdefghijklmnopqrsBCDEFGHI1STUVWXYZabcdeVWXYZabcdefghijo
+d=DEpqrstuhijklmnopKLMNOPQRSTUVWXYZabcdefghFGHIJKLMIJKLMNOPQRSTUVWXYZabcdefgh(d)
+if not d or #d==0 then error('L8')end
+for _=5,1 do end
+if _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM then _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM=57 end
+while false do break end
+d=_IIJKLMNOPQRSTUVWXYZabcdefghJfghijklmnopqrst(d,__BCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_KLMNOPQRScPQRSTUVWXYZab[6])
+do _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM=20 end
+if _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM then oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=79 end
+for _=1,2 do end
+if _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM then oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=18 end
+d=DEpqrstuhijklmnopKLMNOPQRSTUVWXYZabcdefghFGHIJKLMIJKLMNOPQRSTUVWXYZabcdefgh(d)
+if not d or #d==0 then error('L6')end
+do DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=_lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM or 17 end
+if DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv~=DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv then else end
+do local T=659 end
+d=_IIJKLMNOPQRSTUVWXYZabcdefghJfghijklmnopqrst(d,__BCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_KLMNOPQRScPQRSTUVWXYZab[5])
+do QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=59 end
+do local _=771 end
+pcall(function()end)
+d=oJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyRST_(d,__BCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_KLMNOPQRScPQRSTUVWXYZab[4])
+do local T=612 end
+do local _=868 end
+if DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv then T=50 end
+pcall(function()end)
+do local _={34,21}end
+d=_IIJKLMNOPQRSTUVWXYZabcdefghJfghijklmnopqrst(d,__BCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_KLMNOPQRScPQRSTUVWXYZab[3])
+repeat until true
+if T~=T then else end
+pcall(function()end)
+d=_ILMNOPQRIJKLMNCDEFGHIJKLMNOPQRSTUVWABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkYZI(d,__BCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_KLMNOPQRScPQRSTUVWXYZab[2])
+do DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=_lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM or 943 end
+do local _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM=222 end
+do QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=66 end
+d=_IIJKLMNOPQRSTUVWXYZabcdefghJfghijklmnopqrst(d,__BCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_KLMNOPQRScPQRSTUVWXYZab[1])
+return d end
+do oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=T or 471 end
+do local _={75,91}end
+for _=5,4 do end
+while false do break end
+do local _={50,4}end
+if QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO~=DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv then else end
+FGHIJKLMNOPQRSTUVWXYZabcdefghijklmPQRSTUVWXYZabcdefghijkIOU0,I1QRSTUVWZabcdefghijwRSTUVWXYZabcdefghijklmnopqrs1=pcall(KLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx1DEFGHIJKLMNOPQRSTUVWXYZabcLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxfghijklmnopqrstuvwxJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuv)
+if not FGHIJKLMNOPQRSTUVWXYZabcdefghijklmPQRSTUVWXYZabcdefghijkIOU0 then error('Decrypt failed: '..tostring(I1QRSTUVWZabcdefghijwRSTUVWXYZabcdefghijklmnopqrs1))end
+do local _=554 end
+while false do break end
+do T=QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO or 73 end
+do local _={89,81}end
+do local _=869 end
+do oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa or 10 end
+DEFGHIJKLMNOPHIJKLMNOPQRSTUVWXYZabcdefghijklDEFGHIJKLMNOPQRSTUVWXYoUVWXYZabcdefghijklmnopqrO,l1HIJKLMNOPQRSTUVWXYZabcTUVWXYZ=load(I1QRSTUVWZabcdefghijwRSTUVWXYZabcdefghijklmnopqrs1)
+if not DEFGHIJKLMNOPHIJKLMNOPQRSTUVWXYZabcdefghijklDEFGHIJKLMNOPQRSTUVWXYoUVWXYZabcdefghijklmnopqrO then error('Load failed: '..tostring(l1HIJKLMNOPQRSTUVWXYZabcTUVWXYZ))end
+if oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa then DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=40 end
+pcall(function()end)
+if oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa~=DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv then else end
+do local _=614 end
+if DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv~=QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO then else end
+pcall(function()end)
+do oKLMNOPQRSTUVWXYZabcdefg1UVWXYZa=27 end
+do local _=229 end
+yIabcdefghijklmnopqrstuvdefghi,I1OPQRSTUVWXYZabcdefghijkmnopqNOPQRSTUVWXYZabcdefghijklmnopqKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuHIJKLMNOPQRShijklmnI=pcall(DEFGHIJKLMNOPHIJKLMNOPQRSTUVWXYZabcdefghijklDEFGHIJKLMNOPQRSTUVWXYoUVWXYZabcdefghijklmnopqrO)
+if not yIabcdefghijklmnopqrstuvdefghi then error('Exec failed: '..tostring(I1OPQRSTUVWXYZabcdefghijkmnopqNOPQRSTUVWXYZabcdefghijklmnopqKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuHIJKLMNOPQRShijklmnI))end
+while false do break end
+repeat until true
+do _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM=DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv or 68 end
+do _lFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnIJKLMNOPQRSTUVWXYZablBCDEFGHIJKL1BCDEFGHIJKLM=77 end
+while false do break end
+do DEFGHIJKLMNXYZabcdefghijkEFGHIJKLMNOPQRSTUVWXYZabcdefYZabcdefghihijklmnopqrstuv=80 end
+do T=79 end
+do local _=628 end
+for _=4,2 do end
+pcall(function()end)
+for _=3,3 do end
+do local QRSTUVWXYZabcllRSTUVWXYZabcdefghijklmnopqrstuvHIJKLMNO=454 end
+while false do break end
+pcall(function()end)
+repeat until true 
