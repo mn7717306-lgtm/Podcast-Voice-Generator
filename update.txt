@@ -1,4 +1,4 @@
-version 0.1.5
+version 0.2
 
 •Clearly labeled audio player controls: Play, Pause, Rewind, Forward, Next, and Previous, so everyone can understand each function.
 •
